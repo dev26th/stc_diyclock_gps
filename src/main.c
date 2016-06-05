@@ -53,20 +53,12 @@ enum display_mode {
 
 /* ------------------------------------------------------------------------- */
 
+volatile uint8_t timerTicksNow;
+// delay may be only tens of ms
 void _delay_ms(uint8_t ms)
 {	
-    // i,j selected for fosc 11.0592MHz, using oscilloscope
-    // the stc-isp tool gives inaccurate values (perhaps for C51 vs sdcc?)
-    // max 255 ms
-    uint8_t i, j;
-    do {
-    	i = 4;
-    	j = 200;
-    	do
-    	{
-    		while (--j);
-    	} while (--i);
-    } while (--ms);
+    uint8_t stop = timerTicksNow + ms / 10;
+    while(timerTicksNow != stop);
 }
 
 // GLOBALS
@@ -135,6 +127,8 @@ void timer1_isr() __interrupt 3 __using 1 {
     // read switch positions into sliding 8-bit window
     debounce[0] = (debounce[0] << 1) | SW1;
     debounce[1] = (debounce[1] << 1) | SW2;  
+
+    ++timerTicksNow;
 }
 
 void Timer0Init(void)		//100us @ 11.0592MHz
