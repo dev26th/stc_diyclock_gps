@@ -173,6 +173,10 @@ void ds_minutes_incr(struct ds1302_rtc* rtc) {
     ds_writebyte(DS_ADDR_MINUTES, ds_int2bcd(minutes));
 }
 
+void ds_seconds_reset() {
+    ds_writebyte(DS_ADDR_SECONDS, 0);
+}
+
 // increment month
 void ds_month_incr(struct ds1302_rtc* rtc) {
     uint8_t month = ds_split2int(rtc->tenmonth, rtc->month);

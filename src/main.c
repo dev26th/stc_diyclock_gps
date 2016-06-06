@@ -56,7 +56,8 @@ enum display_mode {
 
     M_TEMP_DISP,
     M_DATE_DISP,
-    M_WEEKDAY_DISP
+    M_WEEKDAY_DISP,
+    M_SECONDS_DISP
 };
 
 /* ------------------------------------------------------------------------- */
@@ -269,8 +270,10 @@ int main()
                   if (getkeypress(S2)) {
                       ds_minutes_incr(&rtc);
                   }
-                  if (getkeypress(S1))
+                  if (getkeypress(S1)) {
+                      ds_seconds_reset();
                       dmode = M_NORMAL;
+                  }
               }
               break;
 
@@ -322,6 +325,20 @@ int main()
               #if CFG_SET_DATE_TIME == 1
               if (getkeypress(S1))
                   ds_weekday_incr(&rtc);
+              #endif // CFG_SET_DATE_TIME == 1 
+              if (getkeypress(S2))
+                  dmode = M_SECONDS_DISP;
+              break;
+              
+          case M_SECONDS_DISP:
+              if (count % 10 < 4)
+                  display_colon = DP_ON; // flashing colon
+              else
+                  display_colon = DP_OFF;
+
+              #if CFG_SET_DATE_TIME == 1
+              if (getkeypress(S1))
+                  ds_seconds_reset();
               #endif // CFG_SET_DATE_TIME == 1 
               if (getkeypress(S2))
                   dmode = M_NORMAL;
@@ -444,6 +461,14 @@ int main()
               #endif
               filldisplay(3, (temp > 0) ? LED_BLANK : LED_DASH, DP_OFF);  
               break;                  
+
+          case M_SECONDS_DISP:
+              filldisplay(0, LED_BLANK, DP_OFF);
+              filldisplay(1, LED_BLANK, display_colon);
+	      filldisplay(2, rtc.tenseconds, display_colon);
+	      filldisplay(3, rtc.seconds, DP_OFF);
+              break;
+
       }
                   
       rotateThirdPos();

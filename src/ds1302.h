@@ -141,6 +141,9 @@ void ds_hours_incr(struct ds1302_rtc* rtc);
 // increment minutes
 void ds_minutes_incr(struct ds1302_rtc* rtc);
 
+// set seconds to zero
+void ds_seconds_reset();
+
 // increment month
 void ds_month_incr(struct ds1302_rtc* rtc);
 
