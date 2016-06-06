@@ -46,12 +46,16 @@
 // display mode states
 enum display_mode {
     M_NORMAL,
-    M_SET_HOUR,
-    M_SET_MINUTE,
+
+    #if CFG_SET_DATE_TIME == 1
+        M_SET_HOUR,
+        M_SET_MINUTE,
+        M_SET_MONTH,
+        M_SET_DAY,
+    #endif
+
     M_TEMP_DISP,
     M_DATE_DISP,
-    M_SET_MONTH,
-    M_SET_DAY,
     M_WEEKDAY_DISP
 };
 
@@ -80,10 +84,13 @@ uint8_t dbuf[4];     // led display buffer, next state
 uint8_t dbufCur[4];  // led display buffer, current state
 uint8_t dmode = M_NORMAL;   // display mode state
 uint8_t display_colon;         // flash colon
+
+#if CFG_SET_DATE_TIME == 1
 __bit  flash_hours;
 __bit  flash_minutes;
 __bit  flash_month;
 __bit  flash_day;
+#endif
 
 volatile uint8_t debounce[2];      // switch debounce buffer
 volatile uint8_t switchcount[2];
@@ -242,7 +249,7 @@ int main()
 
       // display decision tree
       switch (dmode) {
-          
+          #if CFG_SET_DATE_TIME == 1 
           case M_SET_HOUR:
               display_colon = DP_ON;
               flash_hours = !flash_hours;
@@ -267,20 +274,6 @@ int main()
               }
               break;
 
-          case M_TEMP_DISP:
-              if (getkeypress(S1))
-                  config.temp_offset++;
-              if (getkeypress(S2))
-                  dmode = M_DATE_DISP;
-              break;
-                        
-          case M_DATE_DISP:
-              if (getkeypress(S1))
-                  dmode = M_SET_MONTH;
-              if (getkeypress(S2))
-                  dmode = M_WEEKDAY_DISP;                        
-              break;
-              
           case M_SET_MONTH:
               flash_month = !flash_month;
               if (! flash_month) {
@@ -306,22 +299,44 @@ int main()
                   }
               }
               break;
+
+          #endif // CFG_SET_DATE_TIME == 1 
+
+          case M_TEMP_DISP:
+              if (getkeypress(S1))
+                  config.temp_offset++;
+              if (getkeypress(S2))
+                  dmode = M_DATE_DISP;
+              break;
+                        
+          case M_DATE_DISP:
+              #if CFG_SET_DATE_TIME == 1
+              if (getkeypress(S1))
+                  dmode = M_SET_MONTH;
+              #endif // CFG_SET_DATE_TIME == 1 
+              if (getkeypress(S2))
+                  dmode = M_WEEKDAY_DISP;                        
+              break;
               
           case M_WEEKDAY_DISP:
+              #if CFG_SET_DATE_TIME == 1
               if (getkeypress(S1))
                   ds_weekday_incr(&rtc);
+              #endif // CFG_SET_DATE_TIME == 1 
               if (getkeypress(S2))
                   dmode = M_NORMAL;
               break;
               
           case M_NORMAL:          
           default:
-              flash_hours = 0;
-              flash_minutes = 0;
               if (count % 10 < 4)
                   display_colon = DP_ON; // flashing colon
               else
                   display_colon = DP_OFF;
+
+              #if CFG_SET_DATE_TIME == 1
+              flash_hours = 0;
+              flash_minutes = 0;
 
               if (getkeypress(S1) == PRESS_LONG && getkeypress(S2) == PRESS_LONG)
                   ds_reset_clock();   
@@ -329,6 +344,8 @@ int main()
               if (getkeypress(S1 == PRESS_SHORT)) {
                   dmode = M_SET_HOUR;
               }
+              #endif // CFG_SET_DATE_TIME == 1 
+
               if (getkeypress(S2 == PRESS_SHORT)) {
                   dmode = M_TEMP_DISP;
               }
@@ -339,54 +356,72 @@ int main()
       
       switch (dmode) {
           case M_NORMAL:
+
+          #if CFG_SET_DATE_TIME == 1
           case M_SET_HOUR:
           case M_SET_MINUTE:
               if (flash_hours) {
                   filldisplay(0, LED_BLANK, DP_OFF);
                   filldisplay(1, LED_BLANK, display_colon);
-              } else {
+              } else 
+          #endif // CFG_SET_DATE_TIME == 1
+              {
                   #if CFG_HOUR_MODE == 12
                       filldisplay(0, rtc.h12.tenhour ? rtc.h12.tenhour : LED_BLANK, DP_OFF);
-                  #else
+                  #else // CFG_HOUR_MODE == 12
                       filldisplay(0, rtc.h24.tenhour, DP_OFF);
-                  #endif
+                  #endif // CFG_HOUR_MODE == 12
                   filldisplay(1, rtc.h12.hour, display_colon);      
               }
   
               #if CFG_HOUR_MODE == 12
+                  #if CFG_SET_DATE_TIME == 1
                   showDp = rtc.h12.pm ? DP_ON : DP_OFF;
                   if (flash_minutes) {
                       filldisplay(2, LED_BLANK, display_colon);
                       filldisplay(3, LED_BLANK, showDp);
-                  } else {
+                  } else
+                  #endif // CFG_SET_DATE_TIME == 1
+                  {
                       filldisplay(2, rtc.tenminutes, display_colon);
                       filldisplay(3, rtc.minutes, showDp);
                   }
-              #else
+              #else // CFG_HOUR_MODE == 12
+                  #if CFG_SET_DATE_TIME == 1
                   if (flash_minutes) {
                       filldisplay(2, LED_BLANK, display_colon);
                       filldisplay(3, LED_BLANK, DP_OFF);
-                  } else {
+                  } else
+                  #endif // CFG_SET_DATE_TIME == 1
+                  {
                       filldisplay(2, rtc.tenminutes, display_colon);
                       filldisplay(3, rtc.minutes, DP_OFF);
                   }
-              #endif
+              #endif // CFG_HOUR_MODE == 12
               break;
 
           case M_DATE_DISP:
+
+          #if CFG_SET_DATE_TIME == 1
           case M_SET_MONTH:
           case M_SET_DAY:
               if (flash_month) {
                   filldisplay(0, LED_BLANK, DP_OFF);
                   filldisplay(1, LED_BLANK, DP_ON);
-              } else {
+              } else
+          #endif // CFG_SET_DATE_TIME == 1
+              {
                   filldisplay(0, rtc.tenmonth, DP_OFF);
                   filldisplay(1, rtc.month, DP_ON);          
               }
+          #if CFG_SET_DATE_TIME == 1
               if (flash_day) {
                   filldisplay(2, LED_BLANK, DP_OFF);
                   filldisplay(3, LED_BLANK, DP_OFF);              
-              } else {
+              }
+              else
+          #endif // CFG_SET_DATE_TIME == 1
+              {
                   filldisplay(2, rtc.tenday, DP_OFF);
                   filldisplay(3, rtc.day, DP_OFF);              
               }     

@@ -128,6 +128,8 @@ void ds_init() {
     ds_writebyte(DS_ADDR_SECONDS, b); // clear CH
 }
 
+#if CFG_SET_DATE_TIME == 1
+
 // reset date, time
 void ds_reset_clock() {
     ds_writebyte(DS_ADDR_MINUTES, 0x00);
@@ -202,6 +204,8 @@ void ds_weekday_incr(struct ds1302_rtc* rtc) {
 uint8_t ds_split2int(uint8_t tens, uint8_t ones) {
     return tens * 10 + ones;
 }
+
+#endif // CFG_SET_DATE_TIME == 1
 
 // return bcd byte from integer
 uint8_t ds_int2bcd(uint8_t integer) {

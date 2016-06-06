@@ -130,6 +130,8 @@ uint8_t ds_writebyte(uint8_t addr, uint8_t data);
 // clear WP, CH
 void ds_init();
 
+#if CFG_SET_DATE_TIME == 1
+
 // reset date/time to 01/01 00:00
 void ds_reset_clock();
 
@@ -153,6 +155,8 @@ uint8_t ds_split2int(uint8_t tens, uint8_t ones);
 // return bcd byte from integer
 uint8_t ds_int2bcd(uint8_t integer);
     
+#endif // CFG_SET_DATE_TIME == 1
+
 // convert integer to bcd parts (high = tens, low = ones)
 uint8_t ds_int2bcd_tens(uint8_t integer);
 uint8_t ds_int2bcd_ones(uint8_t integer);
