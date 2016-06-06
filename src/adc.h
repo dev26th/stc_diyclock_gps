@@ -29,19 +29,24 @@
 #define ADC_SPEEDHH 0x60            //90 clocks
 
 /*----------------------------
-Initialize ADC sfr
+Initial ADC sfr
 ----------------------------*/
-void InitADC(uint8_t chan);
+void InitADC(uint8_t chan)
+{
+	P1ASF |= 1 << chan;             //enable channel ADC function
+	ADC_RES = 0;                    //Clear previous result
+	ADC_CONTR = ADC_POWER | ADC_SPEEDLL;
+}
 
 /*----------------------------
-Get ADC result - 10 bits
+Get ADC result - 10 bit
 ----------------------------*/
-uint16_t getADCResult(uint8_t chan);
-
-/*----------------------------
-Get ADC result - 8 bits
-----------------------------*/
-uint8_t getADCResult8(uint8_t chan);
-
-
+uint16_t getADCResult(uint8_t chan)
+{
+	ADC_CONTR = ADC_POWER | ADC_SPEEDHH | ADC_START | chan;
+	_nop_;       //Must wait before inquiry
+	while (!(ADC_CONTR & ADC_FLAG));  //Wait complete flag
+	ADC_CONTR &= ~ADC_FLAG;           //Close ADC
+	return  ADC_RES << 2 | (ADC_RESL & 0b11) ;  //Return ADC result
+}
 

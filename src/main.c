@@ -38,6 +38,10 @@
 #define PRESS_SHORT  1
 #define PRESS_LONG   2
 
+// should the DP be shown, negative logic
+#define DP_OFF 0x0
+#define DP_ON 0x80
+
 // display mode states
 enum display_mode {
     M_NORMAL,
@@ -72,9 +76,10 @@ struct ds1302_rtc rtc;
 struct ram_config config;
 
 volatile uint8_t displaycounter;
-uint8_t dbuf[4];     // led display buffer
+uint8_t dbuf[4];     // led display buffer, next state
+uint8_t dbufCur[4];  // led display buffer, current state
 uint8_t dmode = M_NORMAL;   // display mode state
-__bit  display_colon;         // flash colon
+uint8_t display_colon;         // flash colon
 __bit  flash_hours;
 __bit  flash_minutes;
 __bit  flash_month;
@@ -95,7 +100,7 @@ void timer0_isr() __interrupt 1 __using 1
     // auto dimming, skip lighting for some cycles
     if (displaycounter % lightval < 4 ) {
         // fill digits
-        P2 = dbuf[digit];
+        P2 = dbufCur[digit];
         // turn on selected digit, set low
         P3 &= ~((0x1 << digit) << 2);  
     }
@@ -106,27 +111,35 @@ void timer0_isr() __interrupt 1 __using 1
 void timer1_isr() __interrupt 3 __using 1 {
     // debounce ISR
     
+    uint8_t s0 = switchcount[0];
+    uint8_t s1 = switchcount[1];
+    uint8_t d0 = debounce[0];
+    uint8_t d1 = debounce[1];
+
     // debouncing stuff
     // keep resetting halfway if held long
-    if (switchcount[0] > 250)
-        switchcount[0] = 100;
-    if (switchcount[1] > 250)
-        switchcount[1] = 100;
+    if (s0 > 250)
+        s0 = 100;
+    if (s1 > 250)
+        s1 = 100;
 
     // increment count if settled closed
-    if ((debounce[0] & 0x0F) == 0x00)    
-        switchcount[0]++;
+    if ((d0 & 0x0F) == 0x00)    
+        s0++;
     else
-        switchcount[0] = 0;
+        s0 = 0;
     
-    if ((debounce[1] & 0x0F) == 0x00)
-        switchcount[1]++;
+    if ((d1 & 0x0F) == 0x00)
+        s1++;
     else
-        switchcount[1] = 0;
+        s1 = 0;
+
+    switchcount[0] = s0;
+    switchcount[1] = s1;
 
     // read switch positions into sliding 8-bit window
-    debounce[0] = (debounce[0] << 1) | SW1;
-    debounce[1] = (debounce[1] << 1) | SW2;  
+    debounce[0] = (d0 << 1) | SW1;
+    debounce[1] = (d1 << 1) | SW2;  
 
     ++timerTicksNow;
 }
@@ -169,9 +182,18 @@ int8_t gettemp(uint16_t raw) {
     return 76 - raw * 64 / 637;
 }
 
+// store display bytes
+// logic is inverted due to bjt pnp drive, i.e. low = on, high = off
+#define filldisplay(pos, val, dp)  dbuf[pos] = (~dp & ledtable[val])
+
+// rotate third digit, by swapping bits fed with cba
+#define rotateThirdPos() dbuf[2] = dbuf[2] & 0b11000000 | (dbuf[2] & 0b00111000) >> 3 | (dbuf[2] & 0b00000111) << 3;
+
 /*********************************************/
 int main()
 {
+    uint8_t showDp;
+
     // SETUP
     // set ds1302, photoresistor, & ntc pins to open-drain output, already have strong pullups
     P1M1 |= (1 << 0) | (1 << 1) | (1 << 2) | (1<<6) | (1<<7);
@@ -199,7 +221,7 @@ int main()
 
       // run every ~1 secs
       if (count % 4 == 0) {
-          lightval = getADCResult8(ADC_LIGHT) >> 3;
+          lightval = getADCResult(ADC_LIGHT) >> 5;
           temp = gettemp(getADCResult(ADC_TEMP)) + config.temp_offset;
 
           // constrain dimming range
@@ -214,7 +236,7 @@ int main()
       switch (dmode) {
           
           case M_SET_HOUR:
-              display_colon = 1;
+              display_colon = DP_ON;
               flash_hours = !flash_hours;
               if (! flash_hours) {
                   if (getkeypress(S2)) {
@@ -296,9 +318,9 @@ int main()
               flash_hours = 0;
               flash_minutes = 0;
               if (count % 10 < 4)
-                  display_colon = 1; // flashing colon
+                  display_colon = DP_ON; // flashing colon
               else
-                  display_colon = 0;
+                  display_colon = DP_OFF;
 
               if (getkeypress(S1) == PRESS_LONG && getkeypress(S2) == PRESS_LONG)
                   ds_reset_clock();   
@@ -319,72 +341,79 @@ int main()
           case M_SET_HOUR:
           case M_SET_MINUTE:
               if (flash_hours) {
-                  filldisplay(dbuf, 0, LED_BLANK, 0);
-                  filldisplay(dbuf, 1, LED_BLANK, display_colon);
+                  filldisplay(0, LED_BLANK, DP_OFF);
+                  filldisplay(1, LED_BLANK, display_colon);
               } else {
                   if (rtc.h24.hour_12_24 == HOUR_24) {
-                      filldisplay(dbuf, 0, rtc.h24.tenhour, 0);
+                      filldisplay(0, rtc.h24.tenhour, DP_OFF);
                   } else {
-                      filldisplay(dbuf, 0, rtc.h12.tenhour ? rtc.h12.tenhour : LED_BLANK, 0);
+                      filldisplay(0, rtc.h12.tenhour ? rtc.h12.tenhour : LED_BLANK, DP_OFF);
                   }                  
-                  filldisplay(dbuf, 1, rtc.h12.hour, display_colon);      
+                  filldisplay(1, rtc.h12.hour, display_colon);      
               }
   
+              showDp = (rtc.h12.hour_12_24 && rtc.h12.pm) ? DP_ON : DP_OFF;
               if (flash_minutes) {
-                  filldisplay(dbuf, 2, LED_BLANK, display_colon);
-                  filldisplay(dbuf, 3, LED_BLANK, (rtc.h12.hour_12_24) ? rtc.h12.pm : 0);  
+                  filldisplay(2, LED_BLANK, display_colon);
+                  filldisplay(3, LED_BLANK, showDp);
               } else {
-                  filldisplay(dbuf, 2, rtc.tenminutes, display_colon);
-                  filldisplay(dbuf, 3, rtc.minutes, (rtc.h12.hour_12_24) ? rtc.h12.pm : 0);  
+                  filldisplay(2, rtc.tenminutes, display_colon);
+                  filldisplay(3, rtc.minutes, showDp);
               }
               break;
 
           case M_SET_HOUR_12_24:
-              filldisplay(dbuf, 0, LED_BLANK, 0);
+              filldisplay(0, LED_BLANK, DP_OFF);
               if (rtc.h24.hour_12_24 == HOUR_24) {
-                  filldisplay(dbuf, 1, 2, 0);
-                  filldisplay(dbuf, 2, 4, 0);
+                  filldisplay(1, 2, DP_OFF);
+                  filldisplay(2, 4, DP_OFF);
               } else {
-                  filldisplay(dbuf, 1, 1, 0);
-                  filldisplay(dbuf, 2, 2, 0);                  
+                  filldisplay(1, 1, DP_OFF);
+                  filldisplay(2, 2, DP_OFF);                  
               }
-              filldisplay(dbuf, 3, LED_h, 0);
+              filldisplay(3, LED_h, DP_OFF);
               break;
               
           case M_DATE_DISP:
           case M_SET_MONTH:
           case M_SET_DAY:
               if (flash_month) {
-                  filldisplay(dbuf, 0, LED_BLANK, 0);
-                  filldisplay(dbuf, 1, LED_BLANK, 1);
+                  filldisplay(0, LED_BLANK, DP_OFF);
+                  filldisplay(1, LED_BLANK, DP_ON);
               } else {
-                  filldisplay(dbuf, 0, rtc.tenmonth, 0);
-                  filldisplay(dbuf, 1, rtc.month, 1);          
+                  filldisplay(0, rtc.tenmonth, DP_OFF);
+                  filldisplay(1, rtc.month, DP_ON);          
               }
               if (flash_day) {
-                  filldisplay(dbuf, 2, LED_BLANK, 0);
-                  filldisplay(dbuf, 3, LED_BLANK, 0);              
+                  filldisplay(2, LED_BLANK, DP_OFF);
+                  filldisplay(3, LED_BLANK, DP_OFF);              
               } else {
-                  filldisplay(dbuf, 2, rtc.tenday, 0);
-                  filldisplay(dbuf, 3, rtc.day, 0);              
+                  filldisplay(2, rtc.tenday, DP_OFF);
+                  filldisplay(3, rtc.day, DP_OFF);              
               }     
               break;
                    
           case M_WEEKDAY_DISP:
-              filldisplay(dbuf, 0, LED_BLANK, 0);
-              filldisplay(dbuf, 1, LED_DASH, 0);
-              filldisplay(dbuf, 2, rtc.weekday, 0);
-              filldisplay(dbuf, 3, LED_DASH, 0);
+              filldisplay(0, LED_BLANK, DP_OFF);
+              filldisplay(1, LED_DASH, DP_OFF);
+              filldisplay(2, rtc.weekday, DP_OFF);
+              filldisplay(3, LED_DASH, DP_OFF);
               break;
               
           case M_TEMP_DISP:
-              filldisplay(dbuf, 0, ds_int2bcd_tens(temp), 0);
-              filldisplay(dbuf, 1, ds_int2bcd_ones(temp), 0);
-              filldisplay(dbuf, 2, config.temp_C_F == 0 ? LED_c : LED_f, 1);
-              filldisplay(dbuf, 3, (temp > 0) ? LED_BLANK : LED_DASH, 0);  
+              filldisplay(0, ds_int2bcd_tens(temp), DP_OFF);
+              filldisplay(1, ds_int2bcd_ones(temp), DP_OFF);
+              filldisplay(2, config.temp_C_F == 0 ? LED_c : LED_f, DP_ON);
+              filldisplay(3, (temp > 0) ? LED_BLANK : LED_DASH, DP_OFF);  
               break;                  
       }
                   
+      rotateThirdPos();
+      dbufCur[0] = dbuf[0];
+      dbufCur[1] = dbuf[1];
+      dbufCur[2] = dbuf[2];
+      dbufCur[3] = dbuf[3];
+
       // save ram config
       ds_ram_config_write((uint8_t *) &config); 
       _delay_ms(40);
