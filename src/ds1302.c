@@ -136,24 +136,10 @@ void ds_reset_clock() {
     ds_writebyte(DS_ADDR_DAY, 0x01);
 }
     
-void ds_hours_12_24_toggle(struct ds1302_rtc* rtc) {
-    uint8_t b = 0;
-    b = (! rtc->h24.hour_12_24) << 7;    // toggle 12/24 bit
-    ds_writebyte(DS_ADDR_HOUR, b);
-}
-
 // increment hours
 void ds_hours_incr(struct ds1302_rtc* rtc) {
     uint8_t hours, b = 0;
-    if (rtc->h24.hour_12_24 == HOUR_24) {
-        hours = ds_split2int(rtc->h24.tenhour, rtc->h24.hour);
-        if (hours < 23)
-            hours++;
-        else {
-            hours = 00;
-        }
-        b = rtc->h24.hour_12_24 << 7 | ds_int2bcd(hours);
-    } else {
+    #if CFG_HOUR_MODE == 12
         hours = ds_split2int(rtc->h12.tenhour, rtc->h12.hour);
         if (hours < 12)
             hours++;
@@ -161,8 +147,16 @@ void ds_hours_incr(struct ds1302_rtc* rtc) {
             hours = 1;
             rtc->h12.pm = !rtc->h12.pm;
         }
-        b = rtc->h12.hour_12_24 << 7 | rtc->h12.pm << 5 | ds_int2bcd(hours);        
-    }
+        b = 0x80 | rtc->h12.pm << 5 | ds_int2bcd(hours);        
+    #else
+        hours = ds_split2int(rtc->h24.tenhour, rtc->h24.hour);
+        if (hours < 23)
+            hours++;
+        else {
+            hours = 00;
+        }
+        b = ds_int2bcd(hours);
+    #endif
     
     ds_writebyte(DS_ADDR_HOUR, b);
 }

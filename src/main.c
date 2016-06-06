@@ -5,7 +5,8 @@
 
 #include <stc12.h>
 #include <stdint.h>
-#include <stdio.h>
+
+#include "config.h"
 #include "adc.h"
 #include "ds1302.h"
 #include "led.h"
@@ -47,7 +48,6 @@ enum display_mode {
     M_NORMAL,
     M_SET_HOUR,
     M_SET_MINUTE,
-    M_SET_HOUR_12_24,
     M_TEMP_DISP,
     M_DATE_DISP,
     M_SET_MONTH,
@@ -178,8 +178,14 @@ uint8_t getkeypress(uint8_t keynum)
 }
 
 int8_t gettemp(uint16_t raw) {
-    // formula for ntc adc value to approx C
-    return 76 - raw * 64 / 637;
+#if CFG_TEMP_UNIT == 'F'
+       // formula for ntc adc value to approx F
+       // note: 354 ~= 637*5/9; 169 ~= 9*76/5+32
+       return 169 - raw * 64 / 354;
+#else
+       // formula for ntc adc value to approx C
+       return 76 - raw * 64 / 637;
+#endif
 }
 
 // store display bytes
@@ -192,7 +198,9 @@ int8_t gettemp(uint16_t raw) {
 /*********************************************/
 int main()
 {
+#if CFG_HOUR_MODE == 12
     uint8_t showDp;
+#endif
 
     // SETUP
     // set ds1302, photoresistor, & ntc pins to open-drain output, already have strong pullups
@@ -255,17 +263,10 @@ int main()
                       ds_minutes_incr(&rtc);
                   }
                   if (getkeypress(S1))
-                      dmode = M_SET_HOUR_12_24;
+                      dmode = M_NORMAL;
               }
               break;
 
-          case M_SET_HOUR_12_24:
-              if (getkeypress(S2))
-                  ds_hours_12_24_toggle(&rtc);
-              if (getkeypress(S1))
-                  dmode = M_NORMAL;
-              break;
-              
           case M_TEMP_DISP:
               if (getkeypress(S1))
                   config.temp_offset++;
@@ -344,36 +345,34 @@ int main()
                   filldisplay(0, LED_BLANK, DP_OFF);
                   filldisplay(1, LED_BLANK, display_colon);
               } else {
-                  if (rtc.h24.hour_12_24 == HOUR_24) {
-                      filldisplay(0, rtc.h24.tenhour, DP_OFF);
-                  } else {
+                  #if CFG_HOUR_MODE == 12
                       filldisplay(0, rtc.h12.tenhour ? rtc.h12.tenhour : LED_BLANK, DP_OFF);
-                  }                  
+                  #else
+                      filldisplay(0, rtc.h24.tenhour, DP_OFF);
+                  #endif
                   filldisplay(1, rtc.h12.hour, display_colon);      
               }
   
-              showDp = (rtc.h12.hour_12_24 && rtc.h12.pm) ? DP_ON : DP_OFF;
-              if (flash_minutes) {
-                  filldisplay(2, LED_BLANK, display_colon);
-                  filldisplay(3, LED_BLANK, showDp);
-              } else {
-                  filldisplay(2, rtc.tenminutes, display_colon);
-                  filldisplay(3, rtc.minutes, showDp);
-              }
+              #if CFG_HOUR_MODE == 12
+                  showDp = rtc.h12.pm ? DP_ON : DP_OFF;
+                  if (flash_minutes) {
+                      filldisplay(2, LED_BLANK, display_colon);
+                      filldisplay(3, LED_BLANK, showDp);
+                  } else {
+                      filldisplay(2, rtc.tenminutes, display_colon);
+                      filldisplay(3, rtc.minutes, showDp);
+                  }
+              #else
+                  if (flash_minutes) {
+                      filldisplay(2, LED_BLANK, display_colon);
+                      filldisplay(3, LED_BLANK, DP_OFF);
+                  } else {
+                      filldisplay(2, rtc.tenminutes, display_colon);
+                      filldisplay(3, rtc.minutes, DP_OFF);
+                  }
+              #endif
               break;
 
-          case M_SET_HOUR_12_24:
-              filldisplay(0, LED_BLANK, DP_OFF);
-              if (rtc.h24.hour_12_24 == HOUR_24) {
-                  filldisplay(1, 2, DP_OFF);
-                  filldisplay(2, 4, DP_OFF);
-              } else {
-                  filldisplay(1, 1, DP_OFF);
-                  filldisplay(2, 2, DP_OFF);                  
-              }
-              filldisplay(3, LED_h, DP_OFF);
-              break;
-              
           case M_DATE_DISP:
           case M_SET_MONTH:
           case M_SET_DAY:
@@ -403,7 +402,11 @@ int main()
           case M_TEMP_DISP:
               filldisplay(0, ds_int2bcd_tens(temp), DP_OFF);
               filldisplay(1, ds_int2bcd_ones(temp), DP_OFF);
-              filldisplay(2, config.temp_C_F == 0 ? LED_c : LED_f, DP_ON);
+              #if CFG_TEMP_UNIT == 'F'
+                  filldisplay(2, LED_f, DP_ON);
+              #else
+                  filldisplay(2, LED_c, DP_ON);
+              #endif
               filldisplay(3, (temp > 0) ? LED_BLANK : LED_DASH, DP_OFF);  
               break;                  
       }

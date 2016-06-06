@@ -4,6 +4,7 @@
 
 #include <stc12.h>
 #include <stdint.h>
+#include "config.h"
 
 #define _nop_ __asm nop __endasm;
 
@@ -132,9 +133,6 @@ void ds_init();
 // reset date/time to 01/01 00:00
 void ds_reset_clock();
 
-// toggle 12/24 hour mode
-void ds_hours_12_24_toggle(struct ds1302_rtc* rtc);
-    
 // increment hours
 void ds_hours_incr(struct ds1302_rtc* rtc);
 
