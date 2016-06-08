@@ -30,93 +30,64 @@
 
 #define DS_BURST_MODE       31
 
-#define HOUR_24      0
-#define HOUR_12      1
-
 typedef struct ds1302_rtc {
-    // inspiration from http://playground.arduino.cc/Main/DS1302
-    // 8 bytes, must keep aligned to rtc structure. Data fields are bcd
-    
-    // 00-59
-    uint8_t seconds:4;      
-    uint8_t tenseconds:3;   
-    uint8_t clock_halt:1;
+	// inspiration from http://playground.arduino.cc/Main/DS1302
+	// 8 bytes, must keep aligned to rtc structure. Data fields are bcd
 
-    // 00-59    
-    uint8_t minutes:4;      
-    uint8_t tenminutes:3;   
-    uint8_t reserved1:1;
-    
-    union {
-        struct {
-            // 1-12
-            uint8_t hour:4;         
-            uint8_t tenhour:2;       
-            uint8_t reserved2a:1;
-            uint8_t hour_12_24:1;    // 0=24h
-        } h24;
-        struct {
-            // 0-23
-            uint8_t hour:4;      
-            uint8_t tenhour:1;
-            uint8_t pm:1;           // 0=am, 1=pm;
-            uint8_t reserved2b:1;
-            uint8_t hour_12_24:1;   // 1=12h
-        } h12;
-    };
-      
-    // 1-31
-    uint8_t day:4;          
-    uint8_t tenday:2;
-    uint8_t reserved3:2;
+	// 00-59
+	uint8_t seconds:4;
+	uint8_t tenseconds:3;
+	uint8_t clock_halt:1;
 
-    // 1-12
-    uint8_t month:4;        
-    uint8_t tenmonth:1;
-    uint8_t reserved4:3;
-    
-    // 1-7
-    uint8_t weekday:3;      
-    uint8_t reserved5:5;
-    
-    // 00-99
-    uint8_t year:4;         
-    uint8_t tenyear:4;
-    
-    uint8_t reserved:7;    
-    uint8_t write_protect:1;
+	// 00-59
+	uint8_t minutes:4;
+	uint8_t tenminutes:3;
+	uint8_t reserved1:1;
+
+	// 0-23
+	uint8_t hour:4;
+	uint8_t tenhour:2;
+	uint8_t reserved2a:1;
+	uint8_t hour_12_24:1;   // must be 0
+
+	// 1-31
+	uint8_t day:4;
+	uint8_t tenday:2;
+	uint8_t reserved3:2;
+
+	// 1-12
+	uint8_t month:4;
+	uint8_t tenmonth:1;
+	uint8_t reserved4:3;
+
+	// 1-7
+	uint8_t weekday:3;
+	uint8_t reserved5:5;
+
+	// 00-99
+	uint8_t year:4;
+	uint8_t tenyear:4;
+
+	uint8_t reserved:7;
+	uint8_t write_protect:1;
 };
 
-#define TEMP_C       0
-#define TEMP_F       1
-
+// ram config stored in rtc
 typedef struct ram_config {
-    // ram config stored in rtc
-    // must keep these fields 4 bytes, aligned
-    
-    uint8_t   temp_C_F:1;      // 0 = Celcius, 1 = Fahrenheit
-    uint8_t   alarm_on:1;
-    uint8_t   chime_on:1;
-    uint8_t   alarm_hour:5;
-    
-    uint8_t   alarm_minute:6;
-    uint8_t   reserved1:2;
+	int8_t    temp_offset;
 
-     int8_t   temp_offset:3;
-    uint8_t   chime_hour_start:5;
+	uint8_t   alarm_on;
+	uint8_t   alarm_hour;
+	uint8_t   alarm_minute;
 
-    uint8_t   chime_hour_stop:5;
-    uint8_t   reserved3:3;
+	uint8_t   chime_on;
+	uint8_t   chime_hour_start;
+	uint8_t   chime_hour_stop;
 };
 
-void ds_ram_config_init(uint8_t config[4]);
+void ds_ram_config_init(uint8_t * config);
 
-void ds_ram_config_write(uint8_t config[4]);
-
-
-void ds_writebit(__bit b);
-
-__bit ds_readbit();
+void ds_ram_config_write(uint8_t const * config);
 
 // ds1302 single-byte read
 uint8_t ds_readbyte(uint8_t addr);
@@ -125,7 +96,10 @@ uint8_t ds_readbyte(uint8_t addr);
 void ds_readburst(uint8_t time[8]);
 
 // ds1302 single-byte write
-uint8_t ds_writebyte(uint8_t addr, uint8_t data);
+void ds_writebyte(uint8_t addr, uint8_t data);
+
+// ds1302 burst-write 8 bytes from struct
+void ds_writeburst(uint8_t const time[8]);
 
 // clear WP, CH
 void ds_init();
@@ -136,10 +110,10 @@ void ds_init();
 void ds_reset_clock();
 
 // increment hours
-void ds_hours_incr(struct ds1302_rtc* rtc);
+void ds_hours_incr(uint8_t hours);
 
 // increment minutes
-void ds_minutes_incr(struct ds1302_rtc* rtc);
+void ds_minutes_incr(uint8_t minutes);
 
 // set seconds to zero
 void ds_seconds_reset();
@@ -163,4 +137,4 @@ uint8_t ds_int2bcd(uint8_t integer);
 // convert integer to bcd parts (high = tens, low = ones)
 uint8_t ds_int2bcd_tens(uint8_t integer);
 uint8_t ds_int2bcd_ones(uint8_t integer);
-    
+
