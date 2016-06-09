@@ -10,7 +10,7 @@
 #include "adc.h"
 #include "ds1302.h"
 #include "led.h"
-    
+
 #define FOSC    11059200
 
 // clear wdt
@@ -19,7 +19,7 @@
 // alias for relay and buzzer outputs
 #define RELAY   P1_4
 #define BUZZER  P1_5
-    
+
 // adc channels for sensors
 #define ADC_LIGHT 6
 #define ADC_TEMP  7
@@ -40,8 +40,12 @@
 #define PRESS_LONG   2
 
 // should the DP be shown, negative logic
-#define DP_OFF 0x0
-#define DP_ON 0x80
+#define DP_OFF 0x00
+#define DP_ON  0x80
+
+// should the PM be shown, negative logic
+#define PM_OFF 0x00
+#define PM_ON  0x20
 
 // display mode states, order is important
 enum display_mode {
@@ -85,20 +89,15 @@ void _delay_ms(uint8_t ms)
 uint8_t i;
 uint16_t count;
 int16_t temp;      // temperature sensor value
-uint8_t lightval;   // light sensor value
-__bit  beep;
+uint8_t lightval;  // light sensor value
+uint8_t beep;      // actual number of sound-request
 
 #if CFG_ALARM == 1
-enum TriState {
-	TRI_NONE,
-	TRI_ON,
-	TRI_OFF
-};
-enum TriState alarmState;
+uint16_t alarmDuration = -1;
 #endif // CFG_ALARM == 1
 
 #if CFG_CHIME == 1
-__bit chimeState;
+uint8_t chimeDuration = -1;
 #endif // CFG_CHIME == 1
 
 struct ds1302_rtc rtc;
@@ -119,15 +118,218 @@ void convertNow() {
 	now.seconds = rtc.tenseconds * 10 + rtc.seconds;
 }
 
+struct HourToShow {
+	uint8_t tens;
+	uint8_t ones;
+	uint8_t pm;
+};
+struct HourToShow hourToShow1, hourToShow2;
+
+void convertHourToShow(uint8_t hour, struct HourToShow * toShow) {
+#if CFG_HOUR_MODE == 12
+	toShow->pm = 0;
+	if(hour >= 12) {
+		toShow->pm = 1;
+		hour -= 12;
+	}
+	if(hour == 0) hour = 12;
+#else // CFG_HOUR_MODE == 12
+	// pm should be already 0
+#endif // CFG_HOUR_MODE == 12
+	toShow->tens = hour / 10;
+	toShow->ones = hour % 10;
+}
+
 volatile uint8_t displaycounter;
 uint8_t dbuf[4];             // led display buffer, next state
 uint8_t dbufCur[4];          // led display buffer, current state
 uint8_t dmode = M_NORMAL;    // display mode state
 __bit display_colon;         // flash colon
-uint8_t showDp;
 
 __bit  flash_d1d2;
 __bit  flash_d3d4;
+
+// DCF77
+#if CFG_DCF77 == 1
+
+#define DCF77_IN P4_1
+
+#define DCF77_ZERO_MIN      8
+#define DCF77_ZERO_MAX      14
+#define DCF77_ONE_MIN       18
+#define DCF77_ONE_MAX       24
+#define DCF77_MIN_POS_PULSE 66
+#define DCF77_START_MIN     150
+
+#define DCF77_BIT_COUNT     59
+
+#define DCF77_DATA_INVALID    0
+#define DCF77_DATA_COLLECTING 1
+#define DCF77_DATA_VALID      2
+#define DCF77_DATA_PROCESSED  3
+
+static const uint8_t DCF77_DATA_POS[] = {
+	// start in not used
+	1,   //  weather
+	9,   //  weather cont
+	15,  //  callbit
+	16,  //  dstChange
+	17,  //  summer
+	18,  //  winter
+	19,  //  leapSecond
+	20,  //  timeStart
+	21,  //  minutes
+	25,  //  tenMinutes
+	28,  //  minutesPar
+	29,  //  hour
+	33,  //  tenHour
+	35,  //  hourPar
+	36,  //  day
+	40,  //  tenDay
+	42,  //  weekday
+	45,  //  month
+	49,  //  tenMonth
+	50,  //  year
+	54,  //  tenYear
+	58   //  datePar
+};
+
+struct Dcf77Data {
+	uint8_t  start;
+
+	uint16_t weather;
+
+	uint8_t  callbit;
+	uint8_t  dstChange;
+	uint8_t  summer;
+	uint8_t  winter;
+	uint8_t  leapSecond;
+
+	uint8_t  timeStart;
+	uint8_t  minutes;
+	uint8_t  tenMinutes;
+	uint8_t  minutesPar;
+	uint8_t  hour;
+	uint8_t  tenHour;
+	uint8_t  hourPar;
+	uint8_t  day;
+	uint8_t  tenDay;
+	uint8_t  weekday;
+	uint8_t  month;
+	uint8_t  tenMonth;
+	uint8_t  year;
+	uint8_t  tenYear;
+	uint8_t  datePar;
+};
+
+struct Dcf77 {
+	uint8_t dataState;
+	uint8_t actualState;
+	uint8_t stateCount;
+	uint8_t bitPos;
+	struct Dcf77Data data;
+} dcf77;
+
+void dcf77_reset() {
+	uint8_t i;
+	for(i = 0; i < sizeof(dcf77); ++i) *((uint8_t*)&dcf77 + i) = 0;
+}
+
+void dcf77_addBit(uint8_t bit) {
+	uint8_t byte, inByte;
+	uint8_t * data = (uint8_t*)&dcf77.data;
+	uint8_t const * posPos = DCF77_DATA_POS;
+	uint8_t bitPos = dcf77.bitPos;
+
+	if(bitPos >= DCF77_BIT_COUNT) return;
+
+	if(bit) {
+		for(byte = 0; byte < sizeof(DCF77_DATA_POS); ++byte) {
+			if(DCF77_DATA_POS[byte] > bitPos) break;
+		}
+		inByte = bitPos - DCF77_DATA_POS[byte-1];
+		data[byte] |= (1 << inByte);
+	}
+
+	++bitPos;
+	dcf77.bitPos = bitPos;
+}
+
+void dcf77_commit() {
+	// only minimal checks here to save code size
+	uint8_t correct = 1;
+	if(dcf77.bitPos != DCF77_BIT_COUNT) correct = 0;  // it's not true for the leapsecond, but we ignore it
+	if(dcf77.data.start != 0 || dcf77.data.timeStart != 1) correct = 0;
+
+	// FIXME additional checks?
+
+	if(correct) {
+		dcf77.dataState = DCF77_DATA_VALID;
+	}
+	else {
+		dcf77_reset();
+	}
+}
+
+void dcf77_cycle10ms() {
+	uint8_t newState = DCF77_IN;
+	if(newState == dcf77.actualState) {
+		++dcf77.stateCount;
+	}
+	else if(!newState) { // should be begin of a second
+		if(dcf77.stateCount >= DCF77_START_MIN) dcf77_commit(); // first bit in minite - use data from the previous minute
+		else if(dcf77.stateCount < DCF77_MIN_POS_PULSE) dcf77_reset();
+		dcf77.stateCount = 0;
+	}
+	else { // decode the bit
+		if(dcf77.dataState == DCF77_DATA_INVALID) dcf77.dataState = DCF77_DATA_COLLECTING;
+
+		if(dcf77.stateCount >= DCF77_ZERO_MIN && dcf77.stateCount <= DCF77_ZERO_MAX)
+			dcf77_addBit(0);
+		else if(dcf77.stateCount >= DCF77_ONE_MIN && dcf77.stateCount <= DCF77_ONE_MAX)
+			dcf77_addBit(1);
+		else
+			dcf77_reset();
+	}
+}
+
+// in 100 ms ticks
+#define DCF77_MAX_DATA_EXPIRE 10u*60*60
+uint16_t dcf77DataExpire;
+
+void copyDcf77ToRtc() {
+	// a race-condition is possible here, but it cannot occur if this function will be called oft enough (every ~100 ms)
+	if(dcf77.dataState == DCF77_DATA_PROCESSED) {
+		--dcf77DataExpire;
+		if(dcf77DataExpire == 0)
+			dcf77.dataState = DCF77_DATA_INVALID;
+	}
+	else if(dcf77.dataState == DCF77_DATA_VALID) {
+		// take over new data from DCF77
+		rtc.tenyear    = dcf77.data.tenYear;
+		rtc.year       = dcf77.data.year;
+		rtc.tenmonth   = dcf77.data.tenMonth;
+		rtc.month      = dcf77.data.month;
+		rtc.tenday     = dcf77.data.tenDay;
+		rtc.day        = dcf77.data.day;
+		rtc.weekday    = dcf77.data.weekday;
+
+		rtc.tenhour    = dcf77.data.tenHour;
+		rtc.hour       = dcf77.data.hour;
+		rtc.tenminutes = dcf77.data.tenMinutes;
+		rtc.minutes    = dcf77.data.minutes;
+		rtc.tenseconds = 0;
+		rtc.seconds    = 0;
+
+		ds_writeburst((uint8_t const *) &rtc); // write rtc
+
+		dcf77_reset();
+		dcf77.dataState = DCF77_DATA_PROCESSED;
+		dcf77DataExpire = DCF77_MAX_DATA_EXPIRE;
+	}
+}
+
+#endif // CFG_DCF77 == 1
 
 volatile uint8_t debounce[2];      // switch debounce buffer
 volatile uint8_t switchcount[2];
@@ -136,9 +338,9 @@ void timer0_isr() __interrupt 1 __using 1
 {
 	// display refresh ISR
 	// cycle thru digits one at a time
-	uint8_t digit = displaycounter % 4; 
+	uint8_t digit = displaycounter % 4;
 
-	// turn off all digits, set high    
+	// turn off all digits, set high
 	P3 |= 0x3C;
 
 	// auto dimming, skip lighting for some cycles
@@ -146,7 +348,7 @@ void timer0_isr() __interrupt 1 __using 1
 		// fill digits
 		P2 = dbufCur[digit];
 		// turn on selected digit, set low
-		P3 &= ~((0x1 << digit) << 2);  
+		P3 &= ~((0x1 << digit) << 2);
 	}
 	displaycounter++;
 }
@@ -167,7 +369,7 @@ void timer1_isr() __interrupt 3 __using 1 {
 		s1 = 100;
 
 	// increment count if settled closed
-	if ((d0 & 0x0F) == 0x00)    
+	if ((d0 & 0x0F) == 0x00)
 		s0++;
 	else
 		s0 = 0;
@@ -182,13 +384,13 @@ void timer1_isr() __interrupt 3 __using 1 {
 
 	// read switch positions into sliding 8-bit window
 	debounce[0] = (d0 << 1) | SW1;
-	debounce[1] = (d1 << 1) | SW2;  
+	debounce[1] = (d1 << 1) | SW2;
 
 	++timerTicksNow;
 
-	#if CFG_ALARM == 1 || CFG_CHIME == 1
-	if(beep) BUZZER = !BUZZER;
-	#endif // CFG_ALARM == 1 || CFG_CHIME == 1
+	#if CFG_DCF77 == 1
+	dcf77_cycle10ms();
+	#endif // CFG_DCF77 == 1
 }
 
 void Timer0Init(void) // 100us @ 11.0592MHz
@@ -224,11 +426,6 @@ uint8_t getkeypress(uint8_t keynum)
 	return PRESS_NONE;
 }
 
-void resetkeypress(uint8_t keynum)
-{
-	switchcount[keynum] = 0;
-}
-
 int8_t gettemp(uint16_t raw) {
 #if CFG_TEMP_UNIT == 'F'
 	// formula for ntc adc value to approx F
@@ -245,6 +442,13 @@ int8_t gettemp(uint16_t raw) {
 #define displayChar(pos, val)  dbuf[pos] = ledtable[val]
 
 #define displayDp(pos) dbuf[pos] &= ~DP_ON
+
+#if CFG_HOUR_MODE == 12
+#define CFG_HOUR_LEADING_ZERO 0
+#define displayPm(pos, pm) if(pm) dbuf[pos] &= ~PM_ON
+#else
+#define displayPm(pos, pm)
+#endif // CFG_HOUR_MODE == 12
 
 // rotate third digit, by swapping bits fed with cba
 #define rotateThirdChar() dbuf[2] = dbuf[2] & 0b11000000 | (dbuf[2] & 0b00111000) >> 3 | (dbuf[2] & 0b00000111) << 3;
@@ -286,7 +490,7 @@ int main()
 	// init rtc
 	ds_init();
 	// init/read ram config
-	ds_ram_config_init((uint8_t *) &config);    
+	ds_ram_config_init((uint8_t *) &config);
 
 	Timer0Init(); // display refresh
 	Timer1Init(); // switch debounce
@@ -294,74 +498,83 @@ int main()
 	// LOOP
 	while(1)
 	{
+		_delay_ms(100);
+		count++;
+		WDT_CLEAR();
+
 		// run every ~1 secs
 		if (count % 4 == 0) {
 			lightval = getADCResult(ADC_LIGHT) >> 5;
 			temp = gettemp(getADCResult(ADC_TEMP)) + config.temp_offset;
 
 			// constrain dimming range
-			if (lightval < 4) 
+			if (lightval < 4)
 				lightval = 4;
 		}
+
+		#if CFG_DCF77 == 1
+		copyDcf77ToRtc();
+		#endif // CFG_DCF77 == 1
 
 		ds_readburst((uint8_t *) &rtc); // read rtc
 		convertNow();
 
-		beep = 0;
-
 		#if CFG_ALARM == 1
 		// check alarm
-		if(config.alarm_on) {
-			switch(alarmState) {
-				case TRI_NONE:
-					if(config.alarm_hour == now.hour && config.alarm_minute == now.minutes) {
-						alarmState = TRI_ON;
-					}
-					break;
-
-				case TRI_ON:
-					if(getkeypress(S1) || getkeypress(S2)) {
-						alarmState = TRI_OFF;
-						resetkeypress(S1); // FIXME doesn't work
-						resetkeypress(S2);
-					}
-					// continue, i.e. alarm will go off automatically after one minute
-
-				case TRI_OFF:
-					if(config.alarm_hour != now.hour || config.alarm_minute != now.minutes) {
-						alarmState = TRI_NONE; // forget about last alarm
-					}
-					break;
+		if(alarmDuration == (uint16_t)-1) {
+			if(config.alarm_on) {
+				if(config.alarm_hour == now.hour && config.alarm_minute == now.minutes) {
+					alarmDuration = CFG_ALARM_DURATION;
+					++beep;
+				}
 			}
-			if(alarmState == TRI_ON) beep = 1;
+		}
+		else if(alarmDuration == 0) {
+			if(config.alarm_hour != now.hour || config.alarm_minute != now.minutes) {
+				alarmDuration = -1; // forget about last alarm
+			}
+		}
+		else {
+			--alarmDuration;
+			if(getkeypress(S1) || getkeypress(S2)) {
+				alarmDuration = 0;
+				continue; // don't interpret same key again
+			}
+			if(alarmDuration == 0) --beep;
 		}
 		#endif // CFG_ALARM == 1
 
 		#if CFG_CHIME == 1
 		// check chime
-		if(config.chime_on) {
-			if(!chimeState) {
+		if(chimeDuration == (uint8_t)-1) {
+			if(config.chime_on) {
 				if(now.minutes == 0 && now.seconds == 0) {
 					if((config.chime_hour_start <= config.chime_hour_stop && config.chime_hour_start <= now.hour && now.hour <= config.chime_hour_stop)
 						|| (config.chime_hour_start > config.chime_hour_stop && (config.chime_hour_start <= now.hour || now.hour <= config.chime_hour_stop)))
 					{
-						chimeState = 1;
+						chimeDuration = CFG_CHIME_DURATION;
+						++beep;
 					}
 				}
 			}
-			else {
-				if(now.minutes != 0 || now.seconds != 0) {
-					chimeState = 0;
-				}
+		}
+		else if(chimeDuration == 0) {
+			if(now.minutes != 0 || now.seconds != 0) {
+				chimeDuration = -1; // forget about last chime
 			}
-			if(chimeState) beep = 1;
+		}
+		else {
+			--chimeDuration;
+				if(chimeDuration == 0) --beep;
 		}
 		#endif // CFG_CHIME == 1
+
+		BUZZER = (beep ? 1 : 0);
 
 		// display decision tree
 		display_colon = 0;
 		switch (dmode) {
-			#if CFG_SET_DATE_TIME == 1 
+			#if CFG_SET_DATE_TIME == 1
 			case M_SET_HOUR:
 				display_colon = 1;
 				flash_d1d2 = !flash_d1d2;
@@ -374,7 +587,7 @@ int main()
 				}
 				break;
 
-			 case M_SET_MINUTE:
+			case M_SET_MINUTE:
 				display_colon = 1;
 				flash_d3d4 = !flash_d3d4;
 				if (getkeypress(S2)) {
@@ -407,7 +620,7 @@ int main()
 					dmode = M_DATE_DISP;
 				}
 				break;
-			#endif // CFG_SET_DATE_TIME == 1 
+			#endif // CFG_SET_DATE_TIME == 1
 
 			#if CFG_ALARM == 1
 			case M_ALARM_HOUR:
@@ -514,7 +727,7 @@ int main()
 				#if CFG_SET_DATE_TIME == 1
 				if (getkeypress(S1))
 					dmode = M_SET_MONTH;
-				#endif // CFG_SET_DATE_TIME == 1 
+				#endif // CFG_SET_DATE_TIME == 1
 
 				if (getkeypress(S2))
 					dmode = M_WEEKDAY_DISP;
@@ -524,7 +737,7 @@ int main()
 				#if CFG_SET_DATE_TIME == 1
 				if (getkeypress(S1))
 					ds_weekday_incr(&rtc);
-				#endif // CFG_SET_DATE_TIME == 1 
+				#endif // CFG_SET_DATE_TIME == 1
 
 				if (getkeypress(S2))
 					dmode = M_SECONDS_DISP;
@@ -537,7 +750,7 @@ int main()
 				#if CFG_SET_DATE_TIME == 1
 				if (getkeypress(S1))
 					ds_seconds_reset();
-				#endif // CFG_SET_DATE_TIME == 1 
+				#endif // CFG_SET_DATE_TIME == 1
 
 				if (getkeypress(S2))
 					dmode = M_NORMAL;
@@ -550,12 +763,12 @@ int main()
 
 				#if CFG_SET_DATE_TIME == 1
 				if (getkeypress(S1) == PRESS_LONG && getkeypress(S2) == PRESS_LONG)
-					ds_reset_clock();   
+					ds_reset_clock();
 
 				if (getkeypress(S1 == PRESS_SHORT)) {
 					dmode = M_SET_HOUR;
 				}
-				#endif // CFG_SET_DATE_TIME == 1 
+				#endif // CFG_SET_DATE_TIME == 1
 
 				if (getkeypress(S2 == PRESS_SHORT)) {
 					dmode = M_TEMP_DISP;
@@ -571,13 +784,18 @@ int main()
 			case M_SET_HOUR:
 			case M_SET_MINUTE:
 			#endif
-				showDp = DP_OFF;
 
-				#if CFG_SET_DATE_TIME == 1
-				if(dmode == M_SET_HOUR || dmode == M_SET_MINUTE) showDp = DP_OFF;
-				#endif
+				#if CFG_DCF77 == 1
+				if((dcf77.dataState == DCF77_DATA_PROCESSED)
+					|| (dcf77.dataState == DCF77_DATA_COLLECTING && !display_colon))
+				{
+					displayDp(0);
+				}
+				#endif // CFG_DCF77 == 1
 
-				display(0, rtc.tenhour, rtc.hour, 1, rtc.tenminutes, rtc.minutes);
+				convertHourToShow(now.hour, &hourToShow1);
+				display(CFG_HOUR_LEADING_ZERO, hourToShow1.tens, hourToShow1.ones, 1, rtc.tenminutes, rtc.minutes);
+				displayPm(0, hourToShow1.pm);
 
 				break;
 
@@ -587,7 +805,13 @@ int main()
 			case M_SET_MONTH:
 			case M_SET_DAY:
 			#endif
-				display(0, rtc.tenday, rtc.day, 1, rtc.tenmonth, rtc.month);
+
+				#if CFG_DATE_FORMAT == 1
+				display(CFG_DAY_LEADING_ZERO, rtc.tenday, rtc.day, CFG_MONTH_LEADING_ZERO, rtc.tenmonth, rtc.month);
+				#else
+				display(CFG_MONTH_LEADING_ZERO, rtc.tenmonth, rtc.month, CFG_DAY_LEADING_ZERO, rtc.tenday, rtc.day);
+				#endif
+
 				displayDp(1);
 				break;
 
@@ -595,7 +819,9 @@ int main()
 			case M_ALARM_HOUR:
 			case M_ALARM_MINUTE:
 			case M_ALARM_ON:
-				display(0, config.alarm_hour / 10, config.alarm_hour % 10, 1, config.alarm_minute / 10, config.alarm_minute % 10);
+				convertHourToShow(config.alarm_hour, &hourToShow1);
+				display(CFG_HOUR_LEADING_ZERO, hourToShow1.tens, hourToShow1.ones, 1, config.alarm_minute / 10, config.alarm_minute % 10);
+				displayPm(0, hourToShow1.pm);
 				if(config.alarm_on) displayDp(3);
 				break;
 			#endif
@@ -604,7 +830,11 @@ int main()
 			case M_CHIME_START:
 			case M_CHIME_STOP:
 			case M_CHIME_ON:
-				display(0, config.chime_hour_start / 10, config.chime_hour_start % 10, 0, config.chime_hour_stop / 10, config.chime_hour_stop % 10);
+				convertHourToShow(config.chime_hour_start, &hourToShow1);
+				convertHourToShow(config.chime_hour_stop, &hourToShow2);
+				display(CFG_HOUR_LEADING_ZERO, hourToShow1.tens, hourToShow1.ones, CFG_HOUR_LEADING_ZERO, hourToShow2.tens, hourToShow2.ones);
+				displayPm(0, hourToShow1.pm);
+				displayPm(2, hourToShow2.pm);
 				if(config.chime_on) displayDp(3);
 				break;
 			#endif
@@ -614,7 +844,7 @@ int main()
 				break;
 
 			case M_TEMP_DISP:
-				display(0, ds_int2bcd_tens(temp), ds_int2bcd_ones(temp), 1, LED_TEMP, (temp >= 0) ? LED_BLANK : LED_DASH);  
+				display(0, ds_int2bcd_tens(temp), ds_int2bcd_ones(temp), 1, LED_TEMP, (temp >= 0) ? LED_BLANK : LED_DASH);
 				displayDp(2);
 				break;
 
@@ -632,12 +862,9 @@ int main()
 
 		// save ram config
 		if(configModified) {
-			ds_ram_config_write((uint8_t *) &config); 
+			ds_ram_config_write((uint8_t *) &config);
 			configModified = 0;
 		}
-		_delay_ms(100);
-		count++;
-		WDT_CLEAR();
 	}
 }
 /* ------------------------------------------------------------------------- */
