@@ -530,16 +530,17 @@ int main()
 			}
 		}
 		else if(alarmDuration == 0) {
-			if(config.alarm_hour != now.hour || config.alarm_minute != now.minutes) {
-				alarmDuration = -1; // forget about last alarm
+			if(config.alarm_hour != now.hour) {
+				alarmDuration = -1; // forget about last alarm after one hour
 			}
 		}
 		else {
-			--alarmDuration;
 			if(getkeypress(S1) || getkeypress(S2)) {
 				alarmDuration = 0;
+				--beep;
 				continue; // don't interpret same key again
 			}
+			--alarmDuration;
 			if(alarmDuration == 0) --beep;
 		}
 		#endif // CFG_ALARM == 1
@@ -559,17 +560,17 @@ int main()
 			}
 		}
 		else if(chimeDuration == 0) {
-			if(now.minutes != 0 || now.seconds != 0) {
+			if(now.minutes != 0) {
 				chimeDuration = -1; // forget about last chime
 			}
 		}
 		else {
 			--chimeDuration;
-				if(chimeDuration == 0) --beep;
+			if(chimeDuration == 0) --beep;
 		}
 		#endif // CFG_CHIME == 1
 
-		BUZZER = (beep ? 1 : 0);
+		BUZZER = (beep ? 0 : 1);
 
 		// display decision tree
 		display_colon = 0;
@@ -630,6 +631,7 @@ int main()
 					++config.alarm_hour;
 					if(config.alarm_hour >= 24) config.alarm_hour = 0;
 					config.alarm_on = 1;
+					alarmDuration = -1; // reset alarm state
 					configModified = 1;
 				}
 				if(getkeypress(S1)) {
@@ -645,6 +647,7 @@ int main()
 					++config.alarm_minute;
 					if(config.alarm_minute >= 60) config.alarm_minute = 0;
 					config.alarm_on = 1;
+					alarmDuration = -1; // reset alarm state
 					configModified = 1;
 				}
 				if(getkeypress(S1)) {
@@ -659,6 +662,7 @@ int main()
 				flash_d3d4 = !flash_d3d4;
 				if(getkeypress(S2)) {
 					config.alarm_on = !config.alarm_on;
+					alarmDuration = -1; // reset alarm state
 					configModified = 1;
 				}
 				if(getkeypress(S1)) {
@@ -785,6 +789,10 @@ int main()
 			case M_SET_MINUTE:
 			#endif
 
+				convertHourToShow(now.hour, &hourToShow1);
+				display(CFG_HOUR_LEADING_ZERO, hourToShow1.tens, hourToShow1.ones, 1, rtc.tenminutes, rtc.minutes);
+				displayPm(0, hourToShow1.pm);
+
 				#if CFG_DCF77 == 1
 				if((dcf77.dataState == DCF77_DATA_PROCESSED)
 					|| (dcf77.dataState == DCF77_DATA_COLLECTING && !display_colon))
@@ -793,9 +801,9 @@ int main()
 				}
 				#endif // CFG_DCF77 == 1
 
-				convertHourToShow(now.hour, &hourToShow1);
-				display(CFG_HOUR_LEADING_ZERO, hourToShow1.tens, hourToShow1.ones, 1, rtc.tenminutes, rtc.minutes);
-				displayPm(0, hourToShow1.pm);
+				#if CFG_ALARM == 1
+				if(dmode == M_NORMAL && config.alarm_on) displayDp(3);
+				#endif // CFG_ALARM == 1
 
 				break;
 
