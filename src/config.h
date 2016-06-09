@@ -16,7 +16,7 @@
 // defaults for the configuration options:
 
 #define CFG_ALARM_DURATION 600
-#define CFG_CHIME_DURATION 5
+#define CFG_CHIME_DURATION 1
 
 #ifndef CFG_HOUR_MODE
 #define CFG_HOUR_MODE 24
