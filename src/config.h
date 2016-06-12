@@ -60,7 +60,7 @@
 #endif
 
 #ifndef CFG_DCF77
-#define CFG_DCF77 1
+#define CFG_DCF77 0
 #endif
 
 #endif // CONFIG_H

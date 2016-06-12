@@ -1,29 +1,26 @@
 # STC DIY Clock Kit firmware
 Firmware replacement for STC15F mcu-based DIY Clock Kit (available from banggood [see below for link], aliexpress, et al.) Uses [sdcc](http://sdcc.sf.net) to build and [stcgal](https://github.com/grigorig/stcgal) to flash firmware on to STC15F204EA series microcontroller.
 
-![Image of Banggood SKU972289](http://img.banggood.com/thumb/large/2014/xiemeijuan/03/SKU203096/A3.jpg?p=WX0407753399201409DA)
+![Image of Banggood SKU972289](http://img.banggood.com/thumb/large/2014/xiemeijuan/03/SKU203096/A3.jpg?p=D9031748980672016067)
 
-[link to Banggood product page for SKU 972289](http://www.banggood.com/DIY-4-Digit-LED-Electronic-Clock-Kit-Temperature-Light-Control-Version-p-972289.html?p=WX0407753399201409DA)
+[link to Banggood product page for SKU 972289](http://www.banggood.com/DIY-4-Digit-LED-Electronic-Clock-Kit-Temperature-Light-Control-Version-p-972289.html?p=D9031748980672016067)
 
 ## features
 Basic functionality is working:
-* time display/set (12/24 hour modes)
-* date display/set
+* time display/set (12/24 hour modes as compile-time option)
+* display seconds
+* date display/set in MM/DD or DD/MM format (compile-time option)
 * display auto-dim
-* temperature display in C
-
-**note this project in development and a work-in-progress**
-*Pull requests are welcome.*
-
-## TODOs
-* temperature display in C/F selectable (either build or run-time)
-* alarm and chime functionality
-* possibly: make 12/24 hr a build option (to save precious code space)
+* temperature display in °C or °F (compile-time option)
+* alarm
+* chime for selected hours
+* clock synchronization with [DCF77](https://en.wikipedia.org/wiki/DCF77), additional hardware required
 
 ## hardware
 
-* DIY LED Clock kit, based on STC15F204EA and DS1302, e.g. [Banggood SKU 972289](http://www.banggood.com/DIY-4-Digit-LED-Electronic-Clock-Kit-Temperature-Light-Control-Version-p-972289.html?p=WX0407753399201409DA)
-* connected to PC via cheap USB-UART adapter, e.g. CP2102, CH340G. [Banggood: CP2102 USB-UART adapter](http://www.banggood.com/CJMCU-CP2102-USB-To-TTLSerial-Module-UART-STC-Downloader-p-970993.html?p=WX0407753399201409DA)
+* DIY LED Clock kit, based on STC15F204EA and DS1302, e.g. [Banggood SKU 972289](http://www.banggood.com/DIY-4-Digit-LED-Electronic-Clock-Kit-Temperature-Light-Control-Version-p-972289.html?p=D9031748980672016067)
+* connected to PC via cheap USB-UART adapter, e.g. CP2102, CH340G. [Banggood: CP2102 USB-UART adapter](http://www.banggood.com/CJMCU-CP2102-USB-To-TTLSerial-Module-UART-STC-Downloader-p-970993.html?p=D9031748980672016067)
+* optional: DCF77-receiver, connected to P1.6
 
 ## requirements
 * linux or mac (windows untested, but should work)
@@ -44,39 +41,40 @@ make flash
 * add other options:
 `STCGALOPTS="-l 9600 -b 9600" make flash`
 
-## pre-compiled binaries
-If you like, you can try pre-compiled binaries here:
-https://github.com/zerog2k/stc_diyclock/releases
+* a lot of compile-time options, see config.h; e.g.:
+`COMPILEOPT='-D CFG_HOUR_MODE=12' make`
 
-## use STC-ISP flash tool
-Instead of stcgal, you could alternatively use the official stc-isp tool, e.g stc-isp-15xx-v6.85I.exe, to flash.
-A windows app, but also works fine for me under mac and linux with wine.
+You can not enable all options at once - there is not enough space on the flash.
+
+## firmware usage
+
+If compiled with default options, pressing of S1 (the upper one) on start screen will cycle in:
+set hour -> set minute -> set alarm hour -> set alarm minute -> alarm on/off -> chime start hour -> chime stop hour -> chime on/off
+
+Use S2 (the lower one) to change corresponding value.
+
+Pressing of S2 on the start screen will cycle in:
+temperature -> date -> weekday -> seconds
+
+To go to change mode, press S1 on corresponding screen.
+
+On the start screen the last dot shows state if alarm (on/off).
+
+If DCF77 is enabled, the first dot on the start screen shows its state: 
+* off - no signal
+* blinking - collecting data
+* on - clock is synchronized
 
 ## clock assumptions
 Some of the code assumes 11.0592 MHz internal RC system clock (set by stc-isp or stcgal).
-For example, delay routines would need to be adjusted if this is different.
 
 ## disclaimers
 This code is provided as-is, with NO guarantees or liabilities.
 As the original firmware loaded on an STC MCU cannot be downloaded or backed up, it cannot be restored. If you are not comfortable with experimenting, I suggest obtaining another blank STC MCU and using this to test, so that you can move back to original firmware, if desired.
 
 ### references
-http://www.stcmcu.com (mostly in Chinese)
-
 stc15f204ea english datasheet:
 http://www.stcmcu.com/datasheet/stc/stc-ad-pdf/stc15f204ea-series-english.pdf
-
-sdcc user guide:
-http://sdcc.sourceforge.net/doc/sdccman.pdf
-
-some examples with NRF24L01+ board:
-http://jjmz.free.fr/?tag=stc15l204
-
-Maxim DS1302 datasheet:
-http://datasheets.maximintegrated.com/en/ds/DS1302.pdf
-
-VE3LNY's adaptation of this hardware to AVR (he has some interesting AVR projects there):
-http://www.qsl.net/v/ve3lny/travel_clock.html
 
 [original firmware operation flow state diagram](docs/DIY_LED_Clock_operation_original.png)
 [kit instructions w/ schematic](docs/DIY_LED_Clock.png)

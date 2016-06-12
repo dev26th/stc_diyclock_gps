@@ -336,6 +336,12 @@ void copyDcf77ToRtc() {
 	}
 }
 
+#define timeChanged() dcf77DataExpire = 0
+
+#else // CFG_DCF77 == 1
+
+#define timeChanged()
+
 #endif // CFG_DCF77 == 1
 
 volatile uint8_t debounce[2];      // switch debounce buffer
@@ -591,6 +597,7 @@ int main()
 				flash_d1d2 = !flash_d1d2;
 				if (getkeypress(S2)) {
 					ds_hours_incr(now.hour);
+					timeChanged();
 				}
 				if (getkeypress(S1)) {
 					flash_d1d2 = 0;
@@ -603,6 +610,7 @@ int main()
 				flash_d3d4 = !flash_d3d4;
 				if (getkeypress(S2)) {
 					ds_minutes_incr(now.minutes);
+					timeChanged();
 				}
 				if (getkeypress(S1)) {
 					flash_d3d4 = 0;
@@ -614,6 +622,7 @@ int main()
 				flash_d1d2 = !flash_d1d2;
 				if (getkeypress(S2)) {
 					ds_month_incr(&rtc);
+					timeChanged();
 				}
 				if (getkeypress(S1)) {
 					flash_d1d2 = 0;
@@ -625,6 +634,7 @@ int main()
 				flash_d3d4 = !flash_d3d4;
 				if (getkeypress(S2)) {
 					ds_day_incr(&rtc);
+					timeChanged();
 				}
 				if (getkeypress(S1)) {
 					flash_d3d4 = 0;
@@ -749,8 +759,10 @@ int main()
 
 			case M_WEEKDAY_DISP:
 				#if CFG_SET_DATE_TIME == 1
-				if (getkeypress(S1))
+				if (getkeypress(S1)) {
 					ds_weekday_incr(&rtc);
+					timeChanged();
+				}
 				#endif // CFG_SET_DATE_TIME == 1
 
 				if (getkeypress(S2))
@@ -762,8 +774,10 @@ int main()
 					display_colon = 1;
 
 				#if CFG_SET_DATE_TIME == 1
-				if (getkeypress(S1))
+				if (getkeypress(S1)) {
 					ds_seconds_reset();
+					timeChanged();
+				}
 				#endif // CFG_SET_DATE_TIME == 1
 
 				if (getkeypress(S2))
@@ -776,8 +790,10 @@ int main()
 					display_colon = 1;
 
 				#if CFG_SET_DATE_TIME == 1
-				if (getkeypress(S1) == PRESS_LONG && getkeypress(S2) == PRESS_LONG)
+				if (getkeypress(S1) == PRESS_LONG && getkeypress(S2) == PRESS_LONG) {
 					ds_reset_clock();
+					timeChanged();
+				}
 
 				if (getkeypress(S1 == PRESS_SHORT)) {
 					dmode = M_SET_HOUR;
