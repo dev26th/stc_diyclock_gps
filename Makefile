@@ -1,5 +1,6 @@
 SDCC ?= sdcc
 SDCCOPTS ?= --iram-size 256 --code-size 4089 --xram-size 0
+COMPILEOPT ?=
 STCGAL ?= stcgal/stcgal.py
 STCGALOPTS ?= 
 STCGALPORT ?= /dev/ttyUSB0
@@ -14,10 +15,10 @@ all: main
 
 build/%.rel: src/%.c
 	mkdir -p $(dir $@)
-	$(SDCC) $(SDCCOPTS) -o $@ -c $<
+	$(SDCC) $(SDCCOPTS) $(COMPILEOPT) -o $@ -c $<
 
 main: $(OBJ)
-	$(SDCC) -o build/ src/$@.c $(SDCCOPTS) $^
+	$(SDCC) $(COMPILEOPT) -o build/ src/$@.c $(SDCCOPTS) $^
 	cp build/$@.ihx $@.hex
 	
 flash:

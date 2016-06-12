@@ -15,8 +15,13 @@
 // durations are in 100 ms tackts
 // defaults for the configuration options:
 
+#ifndef CFG_ALARM_DURATION
 #define CFG_ALARM_DURATION 600
+#endif
+
+#ifndef CFG_CHIME_DURATION
 #define CFG_CHIME_DURATION 1
+#endif
 
 #ifndef CFG_HOUR_MODE
 #define CFG_HOUR_MODE 24
