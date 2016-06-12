@@ -93,11 +93,13 @@ uint8_t lightval;  // light sensor value
 uint8_t beep;      // actual number of sound-request
 
 #if CFG_ALARM == 1
-uint16_t alarmDuration = -1;
+#define ALARM_DURATION_NO (uint16_t)-1
+uint16_t alarmDuration = ALARM_DURATION_NO;
 #endif // CFG_ALARM == 1
 
 #if CFG_CHIME == 1
-uint8_t chimeDuration = -1;
+#define CHIME_DURATION_NO (uint8_t)-1
+uint8_t chimeDuration = CHIME_DURATION_NO;
 #endif // CFG_CHIME == 1
 
 struct ds1302_rtc rtc;
@@ -152,21 +154,22 @@ __bit  flash_d3d4;
 // DCF77
 #if CFG_DCF77 == 1
 
-#define DCF77_IN P4_1
+#define DCF77_IN P3_6
 
-#define DCF77_ZERO_MIN      8
-#define DCF77_ZERO_MAX      14
-#define DCF77_ONE_MIN       18
-#define DCF77_ONE_MAX       24
+#define DCF77_ZERO_MIN      7
+#define DCF77_ZERO_MAX      12
+#define DCF77_ONE_MIN       17
+#define DCF77_ONE_MAX       22
 #define DCF77_MIN_POS_PULSE 66
 #define DCF77_START_MIN     150
 
 #define DCF77_BIT_COUNT     59
 
-#define DCF77_DATA_INVALID    0
-#define DCF77_DATA_COLLECTING 1
-#define DCF77_DATA_VALID      2
-#define DCF77_DATA_PROCESSED  3
+enum Dcf77DataState {
+	DCF77_DATA_INVALID,
+	DCF77_DATA_COLLECTING,
+	DCF77_DATA_VALID
+};
 
 static const uint8_t DCF77_DATA_POS[] = {
 	// start in not used
@@ -223,10 +226,10 @@ struct Dcf77Data {
 };
 
 struct Dcf77 {
-	uint8_t dataState;
-	uint8_t actualState;
-	uint8_t stateCount;
-	uint8_t bitPos;
+	enum Dcf77DataState dataState;
+	uint8_t actualState;   // which level had out input last time
+	uint8_t stateCount;    // how many 10 ms ticks was same input level
+	uint8_t bitPos;        // how many bit was already received for current minute
 	struct Dcf77Data data;
 } dcf77;
 
@@ -258,8 +261,12 @@ void dcf77_addBit(uint8_t bit) {
 void dcf77_commit() {
 	// only minimal checks here to save code size
 	uint8_t correct = 1;
-	if(dcf77.bitPos != DCF77_BIT_COUNT) correct = 0;  // it's not true for the leapsecond, but we ignore it
-	if(dcf77.data.start != 0 || dcf77.data.timeStart != 1) correct = 0;
+	if(dcf77.bitPos != DCF77_BIT_COUNT) {
+		correct = 0;  // it's not true for the leapsecond, but we ignore it
+	}
+	else if(dcf77.data.start != 0 || dcf77.data.timeStart != 1) {
+		correct = 0;
+	}
 
 	// FIXME additional checks?
 
@@ -276,20 +283,23 @@ void dcf77_cycle10ms() {
 	if(newState == dcf77.actualState) {
 		++dcf77.stateCount;
 	}
-	else if(!newState) { // should be begin of a second
-		if(dcf77.stateCount >= DCF77_START_MIN) dcf77_commit(); // first bit in minite - use data from the previous minute
-		else if(dcf77.stateCount < DCF77_MIN_POS_PULSE) dcf77_reset();
-		dcf77.stateCount = 0;
-	}
-	else { // decode the bit
-		if(dcf77.dataState == DCF77_DATA_INVALID) dcf77.dataState = DCF77_DATA_COLLECTING;
+	else {
+		if(newState) { // should be begin of a second
+			if(dcf77.stateCount >= DCF77_START_MIN) dcf77_commit(); // first bit in minite - use data from the previous minute
+			else if(dcf77.stateCount < DCF77_MIN_POS_PULSE) dcf77_reset();
+		}
+		else { // decode the bit
+			dcf77.dataState = DCF77_DATA_COLLECTING;
 
-		if(dcf77.stateCount >= DCF77_ZERO_MIN && dcf77.stateCount <= DCF77_ZERO_MAX)
-			dcf77_addBit(0);
-		else if(dcf77.stateCount >= DCF77_ONE_MIN && dcf77.stateCount <= DCF77_ONE_MAX)
-			dcf77_addBit(1);
-		else
-			dcf77_reset();
+			if(dcf77.stateCount >= DCF77_ZERO_MIN && dcf77.stateCount <= DCF77_ZERO_MAX)
+				dcf77_addBit(0);
+			else if(dcf77.stateCount >= DCF77_ONE_MIN && dcf77.stateCount <= DCF77_ONE_MAX)
+				dcf77_addBit(1);
+			else
+				dcf77_reset();
+		}
+		dcf77.stateCount = 0;
+		dcf77.actualState = newState;
 	}
 }
 
@@ -299,12 +309,7 @@ uint16_t dcf77DataExpire;
 
 void copyDcf77ToRtc() {
 	// a race-condition is possible here, but it cannot occur if this function will be called oft enough (every ~100 ms)
-	if(dcf77.dataState == DCF77_DATA_PROCESSED) {
-		--dcf77DataExpire;
-		if(dcf77DataExpire == 0)
-			dcf77.dataState = DCF77_DATA_INVALID;
-	}
-	else if(dcf77.dataState == DCF77_DATA_VALID) {
+	if(dcf77.dataState == DCF77_DATA_VALID) {
 		// take over new data from DCF77
 		rtc.tenyear    = dcf77.data.tenYear;
 		rtc.year       = dcf77.data.year;
@@ -324,8 +329,10 @@ void copyDcf77ToRtc() {
 		ds_writeburst((uint8_t const *) &rtc); // write rtc
 
 		dcf77_reset();
-		dcf77.dataState = DCF77_DATA_PROCESSED;
 		dcf77DataExpire = DCF77_MAX_DATA_EXPIRE;
+	}
+	else if(dcf77DataExpire > 0) {
+		--dcf77DataExpire;
 	}
 }
 
@@ -487,6 +494,9 @@ int main()
 	P1M1 |= (1 << 0) | (1 << 1) | (1 << 2) | (1<<6) | (1<<7);
 	P1M0 |= (1 << 0) | (1 << 1) | (1 << 2) | (1<<6) | (1<<7);
 
+	P3M1 = (1 << 6);
+	P3M0 = (0 << 6);
+
 	// init rtc
 	ds_init();
 	// init/read ram config
@@ -521,7 +531,7 @@ int main()
 
 		#if CFG_ALARM == 1
 		// check alarm
-		if(alarmDuration == (uint16_t)-1) {
+		if(alarmDuration == ALARM_DURATION_NO) {
 			if(config.alarm_on) {
 				if(config.alarm_hour == now.hour && config.alarm_minute == now.minutes) {
 					alarmDuration = CFG_ALARM_DURATION;
@@ -531,7 +541,7 @@ int main()
 		}
 		else if(alarmDuration == 0) {
 			if(config.alarm_hour != now.hour) {
-				alarmDuration = -1; // forget about last alarm after one hour
+				alarmDuration = ALARM_DURATION_NO; // forget about last alarm after one hour
 			}
 		}
 		else {
@@ -547,7 +557,7 @@ int main()
 
 		#if CFG_CHIME == 1
 		// check chime
-		if(chimeDuration == (uint8_t)-1) {
+		if(chimeDuration == CHIME_DURATION_NO) {
 			if(config.chime_on) {
 				if(now.minutes == 0 && now.seconds == 0) {
 					if((config.chime_hour_start <= config.chime_hour_stop && config.chime_hour_start <= now.hour && now.hour <= config.chime_hour_stop)
@@ -561,7 +571,7 @@ int main()
 		}
 		else if(chimeDuration == 0) {
 			if(now.minutes != 0) {
-				chimeDuration = -1; // forget about last chime
+				chimeDuration = CHIME_DURATION_NO; // forget about last chime
 			}
 		}
 		else {
@@ -631,7 +641,7 @@ int main()
 					++config.alarm_hour;
 					if(config.alarm_hour >= 24) config.alarm_hour = 0;
 					config.alarm_on = 1;
-					alarmDuration = -1; // reset alarm state
+					alarmDuration = ALARM_DURATION_NO; // reset alarm state
 					configModified = 1;
 				}
 				if(getkeypress(S1)) {
@@ -647,7 +657,7 @@ int main()
 					++config.alarm_minute;
 					if(config.alarm_minute >= 60) config.alarm_minute = 0;
 					config.alarm_on = 1;
-					alarmDuration = -1; // reset alarm state
+					alarmDuration = ALARM_DURATION_NO; // reset alarm state
 					configModified = 1;
 				}
 				if(getkeypress(S1)) {
@@ -662,7 +672,7 @@ int main()
 				flash_d3d4 = !flash_d3d4;
 				if(getkeypress(S2)) {
 					config.alarm_on = !config.alarm_on;
-					alarmDuration = -1; // reset alarm state
+					alarmDuration = ALARM_DURATION_NO; // reset alarm state
 					configModified = 1;
 				}
 				if(getkeypress(S1)) {
@@ -794,7 +804,7 @@ int main()
 				displayPm(0, hourToShow1.pm);
 
 				#if CFG_DCF77 == 1
-				if((dcf77.dataState == DCF77_DATA_PROCESSED)
+				if((dcf77DataExpire > 0)
 					|| (dcf77.dataState == DCF77_DATA_COLLECTING && !display_colon))
 				{
 					displayDp(0);
