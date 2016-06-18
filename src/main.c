@@ -156,12 +156,12 @@ __bit  flash_d3d4;
 
 #define DCF77_IN P3_6
 
-#define DCF77_ZERO_MIN      7
-#define DCF77_ZERO_MAX      12
+#define DCF77_ZERO_MIN      6
+#define DCF77_ZERO_MAX      14
 #define DCF77_ONE_MIN       17
-#define DCF77_ONE_MAX       22
+#define DCF77_ONE_MAX       24
 #define DCF77_MIN_POS_PULSE 66
-#define DCF77_START_MIN     150
+#define DCF77_START_MIN     110
 
 #define DCF77_BIT_COUNT     59
 
@@ -233,6 +233,11 @@ struct Dcf77 {
 	struct Dcf77Data data;
 } dcf77;
 
+struct Dcf77TickFilter {
+	uint8_t buf;
+	uint8_t count;
+} dcf77TickFilter;
+
 void dcf77_reset() {
 	uint8_t i;
 	for(i = 0; i < sizeof(dcf77); ++i) *((uint8_t*)&dcf77 + i) = 0;
@@ -280,6 +285,14 @@ void dcf77_commit() {
 
 void dcf77_cycle10ms() {
 	uint8_t newState = DCF77_IN;
+
+	// pass through filter
+	dcf77TickFilter.count += newState;
+	dcf77TickFilter.buf <<= 1;
+	dcf77TickFilter.count -= (dcf77TickFilter.buf & 0x80) >> 7;
+	dcf77TickFilter.buf |= newState;
+	newState = (dcf77TickFilter.count > 3) ? 1 : 0;
+
 	if(newState == dcf77.actualState) {
 		++dcf77.stateCount;
 	}
@@ -406,24 +419,24 @@ void timer1_isr() __interrupt 3 __using 1 {
 	#endif // CFG_DCF77 == 1
 }
 
-void Timer0Init(void) // 100us @ 11.0592MHz
+void Timer0Init(void) // 200us @ 11.0592MHz
 {
-	TL0 = 0xA3;     // Initial timer value
-	TH0 = 0xFF;     // Initial timer value
-	TF0 = 0;        // Clear TF0 flag
-	TR0 = 1;        // Timer0 start run
-	ET0 = 1;        // enable timer0 interrupt
-	EA = 1;         // global interrupt enable
+	TL0 = 0xFF-0xB8;     // Initial timer value
+	TH0 = 0xFF;          // Initial timer value
+	TF0 = 0;             // Clear TF0 flag
+	TR0 = 1;             // Timer0 start run
+	ET0 = 1;             // enable timer0 interrupt
+	EA = 1;              // global interrupt enable
 }
 
 void Timer1Init(void) // 10ms @ 11.0592MHz
 {
-	TL1 = 0xD5;     // Initial timer value
-	TH1 = 0xDB;     // Initial timer value
-	TF1 = 0;        // Clear TF1 flag
-	TR1 = 1;        // Timer1 start run
-	ET1 = 1;        // enable Timer1 interrupt
-	EA = 1;         // global interrupt enable
+	TL1 = 0xD5;          // Initial timer value
+	TH1 = 0xDB;          // Initial timer value
+	TF1 = 0;             // Clear TF1 flag
+	TR1 = 1;             // Timer1 start run
+	ET1 = 1;             // enable Timer1 interrupt
+	EA = 1;              // global interrupt enable
 }
 
 uint8_t getkeypress(uint8_t keynum)
