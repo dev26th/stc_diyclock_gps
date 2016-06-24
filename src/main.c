@@ -31,7 +31,7 @@
 // button switch aliases
 #define SW2     P3_0
 #define S2      1
-#define SW1     P3_0
+#define SW1     P3_1
 #define S1      0
 
 // button press states
@@ -46,45 +46,6 @@
 // should the PM be shown, negative logic
 #define PM_OFF 0x00
 #define PM_ON  0x20
-
-// UART
-#define TXD    P3_1
-
-volatile uint8_t TBUF;
-volatile uint8_t TBIT;
-volatile __bit   TING;
-volatile __bit   TEND;
-
-void uartInit() {
-	TING = 0;
-	TEND = 1;
-}
-
-void uartProcess() {
-	if(TING) {
-		if(TBIT == 0) {
-			TXD = 0;
-			TBIT = 9;
-		}
-		else if(--TBIT == 0) {
-			TXD = 1;
-			TING = 0;
-			TEND = 1;
-		}
-		else {
-			TBUF >>= 1;
-			TXD = CY;
-		}
-	}
-}
-
-void uartSend(uint8_t d) {
-	if(TEND) {
-		TEND = 0;
-		TBUF = d;
-		TING = 1;
-	}
-}
 
 // display mode states, order is important
 enum display_mode {
@@ -333,18 +294,8 @@ void dcf77_commit() {
 	}
 }
 
-uint8_t dcf77_received;
-uint8_t dcf77_receivedCount;
-
 void dcf77_cycle10ms() {
 	uint8_t newState = DCF77_IN;
-
-	dcf77_received <<= 1;
-	dcf77_received |= newState;
-	if(++dcf77_receivedCount == 8) {
-		uartSend(dcf77_received);
-		dcf77_receivedCount = 0;
-	}
 
 	// pass through filter
 	dcf77TickFilter.count += newState;
@@ -441,8 +392,6 @@ void timer0_isr() __interrupt 1 __using 1
 	// cycle thru digits one at a time
 	uint8_t digit = displaycounter % 4;
 
-	uartProcess();
-
 	// turn off all digits, set high
 	P3 |= 0x3C;
 
@@ -457,7 +406,6 @@ void timer0_isr() __interrupt 1 __using 1
 }
 
 void timer1_isr() __interrupt 3 __using 1 {
-	/*
 	// debounce ISR
 
 	uint8_t s0 = switchcount[0];
@@ -489,7 +437,7 @@ void timer1_isr() __interrupt 3 __using 1 {
 	// read switch positions into sliding 8-bit window
 	debounce[0] = (d0 << 1) | SW1;
 	debounce[1] = (d1 << 1) | SW2;
-*/
+
 	++timerTicksNow;
 
 	#if CFG_DCF77 == 1
@@ -497,16 +445,13 @@ void timer1_isr() __interrupt 3 __using 1 {
 	#endif // CFG_DCF77 == 1
 }
 
-void Timer0Init(void) // to match 9600 baud
+void Timer0Init(void) // 200us @ 11.0592MHz
 {
-	TMOD = 0x00;         // 16-bit auto-reload
-	//AUXR = 0x80;         // 1T mode
-	TL0 = 0xA0;          // Initial timer value
+	TL0 = 0xFF-0xB8;     // Initial timer value
 	TH0 = 0xFF;          // Initial timer value
 	TF0 = 0;             // Clear TF0 flag
 	TR0 = 1;             // Timer0 start run
 	ET0 = 1;             // enable timer0 interrupt
-	PT0 = 1;             // high-prio
 	EA = 1;              // global interrupt enable
 }
 
@@ -591,20 +536,17 @@ int main()
 {
 	// SETUP
 	// set ds1302, photoresistor, & ntc pins to open-drain output, already have strong pullups
-	//P1M1 |= (1 << 0) | (1 << 1) | (1 << 2) | (1<<6) | (1<<7);
-	//P1M0 |= (1 << 0) | (1 << 1) | (1 << 2) | (1<<6) | (1<<7);
+	P1M1 |= (1 << 0) | (1 << 1) | (1 << 2) | (1<<6) | (1<<7);
+	P1M0 |= (1 << 0) | (1 << 1) | (1 << 2) | (1<<6) | (1<<7);
 
-	//P3M1 = (1 << 6);
-	//P3M0 = (0 << 6);
-	P3M1 = (0 << 1);
-	P3M0 = (1 << 1);
+	P3M1 = (1 << 6);
+	P3M0 = (0 << 6);
 
 	// init rtc
 	ds_init();
 	// init/read ram config
 	ds_ram_config_init((uint8_t *) &config);
 
-	uartInit();
 	Timer0Init(); // display refresh
 	Timer1Init(); // switch debounce
 
@@ -1016,4 +958,5 @@ int main()
 		}
 	}
 }
+/* ------------------------------------------------------------------------- */
 
