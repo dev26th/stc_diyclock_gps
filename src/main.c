@@ -68,6 +68,10 @@ enum display_mode {
 	M_CHIME_ON,
 	#endif
 
+	#if CFG_DCF77 == 1
+	M_SYNC_DISP,
+	#endif
+
 	M_NORMAL,
 	M_TEMP_DISP,
 	M_DATE_DISP,
@@ -238,6 +242,13 @@ struct Dcf77TickFilter {
 	uint8_t count;
 } dcf77TickFilter;
 
+struct Dcf77LastSync {
+	uint8_t  minutes;
+	uint8_t  tenMinutes;
+	uint8_t  hour;
+	uint8_t  tenHour;
+} dcf77LastSync;
+
 void dcf77_reset() {
 	uint8_t i;
 	for(i = 0; i < sizeof(dcf77); ++i) *((uint8_t*)&dcf77 + i) = 0;
@@ -317,10 +328,18 @@ void dcf77_cycle10ms() {
 }
 
 // in 100 ms ticks
-#define DCF77_MAX_DATA_EXPIRE 10u*60*60
-uint16_t dcf77DataExpire;
+#define DCF77_MAX_DATA_EXPIRE 10ul*60*60*24
+uint32_t dcf77DataExpire;
 
-void copyDcf77ToRtc() {
+void dcf77ResetSync() {
+	dcf77DataExpire = 0;
+	dcf77LastSync.minutes    = 8;
+	dcf77LastSync.tenMinutes = 8;
+	dcf77LastSync.hour       = 8;
+	dcf77LastSync.tenHour    = 8;
+}
+
+void dcf77CopyToRtc() {
 	// a race-condition is possible here, but it cannot occur if this function will be called oft enough (every ~100 ms)
 	if(dcf77.dataState == DCF77_DATA_VALID) {
 		// take over new data from DCF77
@@ -343,9 +362,16 @@ void copyDcf77ToRtc() {
 
 		dcf77_reset();
 		dcf77DataExpire = DCF77_MAX_DATA_EXPIRE;
+		dcf77LastSync.minutes    = dcf77.data.minutes;
+		dcf77LastSync.tenMinutes = dcf77.data.tenMinutes;
+		dcf77LastSync.hour       = dcf77.data.hour;
+		dcf77LastSync.tenHour    = dcf77.data.tenHour;
 	}
 	else if(dcf77DataExpire > 0) {
 		--dcf77DataExpire;
+	}
+	else {
+		dcf77ResetSync();
 	}
 }
 
@@ -419,7 +445,7 @@ void timer1_isr() __interrupt 3 __using 1 {
 	#endif // CFG_DCF77 == 1
 }
 
-void Timer0Init(void) // 200us @ 11.0592MHz
+void Timer0Init(void) // to match 9600 baud
 {
 	TL0 = 0xFF-0xB8;     // Initial timer value
 	TH0 = 0xFF;          // Initial timer value
@@ -542,7 +568,7 @@ int main()
 		}
 
 		#if CFG_DCF77 == 1
-		copyDcf77ToRtc();
+		dcf77CopyToRtc();
 		#endif // CFG_DCF77 == 1
 
 		ds_readburst((uint8_t *) &rtc); // read rtc
@@ -750,6 +776,15 @@ int main()
 				break;
 			#endif // CFG_CHIME == 1
 
+			#if CFG_DCF77 == 1
+			case M_SYNC_DISP:
+				if (getkeypress(S2))
+					dcf77ResetSync();
+				if (getkeypress(S1))
+					++dmode; // M_NORMAL
+				break;
+			#endif
+
 			case M_TEMP_DISP:
 				if (getkeypress(S1)) {
 					config.temp_offset++;
@@ -886,6 +921,15 @@ int main()
 				break;
 			#endif
 
+			#if CFG_DCF77 == 1
+			case M_SYNC_DISP:
+				display(CFG_HOUR_LEADING_ZERO, dcf77LastSync.tenHour, dcf77LastSync.tenHour, 1, dcf77LastSync.tenMinutes, dcf77LastSync.minutes);
+				displayDp(0);
+				displayDp(1);
+				displayDp(2);
+				break;
+			#endif
+
 			case M_WEEKDAY_DISP:
 				display(0, LED_BLANK, LED_DASH, 1, rtc.weekday, LED_DASH);
 				break;
@@ -914,5 +958,4 @@ int main()
 		}
 	}
 }
-/* ------------------------------------------------------------------------- */
 
