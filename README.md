@@ -1,4 +1,4 @@
-# STC DIY Clock Kit firmware
+# STC DIY Clock Kit + GPS firmware
 Firmware replacement for STC15F mcu-based DIY Clock Kit (available from banggood [see below for link], aliexpress, et al.) Uses [sdcc](http://sdcc.sf.net) to build and [stcgal](https://github.com/grigorig/stcgal) to flash firmware on to STC15F204EA series microcontroller.
 
 ![Image of Banggood SKU972289](http://img.banggood.com/thumb/large/2014/xiemeijuan/03/SKU203096/A3.jpg?p=D9031748980672016067)
@@ -6,7 +6,7 @@ Firmware replacement for STC15F mcu-based DIY Clock Kit (available from banggood
 [link to Banggood product page for SKU 972289](http://www.banggood.com/DIY-4-Digit-LED-Electronic-Clock-Kit-Temperature-Light-Control-Version-p-972289.html?p=D9031748980672016067)
 
 ## features
-Basic functionality is working:
+
 * time display/set (12/24 hour modes as compile-time option)
 * display seconds
 * date display/set in MM/DD or DD/MM format (compile-time option)
@@ -14,13 +14,13 @@ Basic functionality is working:
 * temperature display in °C or °F (compile-time option)
 * alarm
 * chime for selected hours
-* clock synchronization with [DCF77](https://en.wikipedia.org/wiki/DCF77), additional hardware required
+* clock synchronization with [GPS](https://en.wikipedia.org/wiki/GPS), additional hardware required
 
 ## hardware
 
 * DIY LED Clock kit, based on STC15F204EA and DS1302, e.g. [Banggood SKU 972289](http://www.banggood.com/DIY-4-Digit-LED-Electronic-Clock-Kit-Temperature-Light-Control-Version-p-972289.html?p=D9031748980672016067)
 * connected to PC via cheap USB-UART adapter, e.g. CP2102, CH340G. [Banggood: CP2102 USB-UART adapter](http://www.banggood.com/CJMCU-CP2102-USB-To-TTLSerial-Module-UART-STC-Downloader-p-970993.html?p=D9031748980672016067)
-* optional: DCF77-receiver, connected to P1.6
+* GPS-receiver, with its Tx connected to P3.7
 
 ## requirements
 * linux or mac (windows untested, but should work)

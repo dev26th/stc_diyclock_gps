@@ -9,7 +9,7 @@ STCGALPORT ?= /dev/ttyUSB0
 FLASHFILE ?= main.hex
 SYSCLK ?= 11059
 
-SRC = src/ds1302.c
+SRC = src/ds1302.c src/gps.c
 
 OBJ=$(patsubst src%.c,build%.rel, $(SRC))
 

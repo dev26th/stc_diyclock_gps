@@ -11,7 +11,6 @@
 // CFG_SET_DATE_TIME 1 or 0
 // CFG_ALARM 1 or 0
 // CFG_CHIME 1 or 0
-// CFG_DCF77 1 or 0
 // durations are in 100 ms tackts
 // defaults for the configuration options:
 
@@ -59,8 +58,8 @@
 #define CFG_CHIME 1
 #endif
 
-#ifndef CFG_DCF77
-#define CFG_DCF77 0
+#ifndef CFG_GPS_CORRECTION
+#define CFG_GPS_CORRECTION 80
 #endif
 
 #endif // CONFIG_H

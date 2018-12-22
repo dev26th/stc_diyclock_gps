@@ -83,6 +83,8 @@ typedef struct ram_config {
 	uint8_t   chime_on;
 	uint8_t   chime_hour_start;
 	uint8_t   chime_hour_stop;
+
+	int8_t    time_offset;
 };
 
 void ds_ram_config_init(uint8_t * config);

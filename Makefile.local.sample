@@ -1,4 +1,4 @@
 STCGAL = /opt/stcgal/stcgal.py
 SDCC = /opt/sdcc-3.6.0/bin/sdcc
-COMPILEOPT = -DCFG_ALARM=0 -DCFG_CHIME=0 -DCFG_DCF77=1
+COMPILEOPT = -DCFG_ALARM=0 -DCFG_CHIME=0
 

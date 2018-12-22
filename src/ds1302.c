@@ -79,7 +79,7 @@ void ds_readburst(uint8_t time[8]) {
 	uint8_t i;
 	ds_sendBegin(DS_CMD | DS_CMD_CLOCK | DS_BURST_MODE << 1 | DS_CMD_READ);
 	for (i=0; i < 8; i++) {
-		time[i] = ds_recvByte();;
+		time[i] = ds_recvByte();
 	}
 	ds_sendEnd();
 }

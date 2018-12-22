@@ -2,14 +2,17 @@
 // STC15F204EA DIY LED Clock
 // Copyright 2016, Jens Jensen
 //
+// UART functionality is from http://www.stcmicro.com/datasheet/STC15F204EA-en.pdf
 
 #include <stc12.h>
 #include <stdint.h>
 
+#include "uart.h"
 #include "config.h"
 #include "adc.h"
 #include "ds1302.h"
 #include "led.h"
+#include "gps.h"
 
 #define FOSC    11059200
 
@@ -47,6 +50,9 @@
 #define PM_OFF 0x00
 #define PM_ON  0x20
 
+#define BAUD 0xFE80                    // 9600bps @ 11.0592MHz
+#define RXB  P3_7
+
 // display mode states, order is important
 enum display_mode {
 	#if CFG_SET_DATE_TIME == 1
@@ -68,15 +74,12 @@ enum display_mode {
 	M_CHIME_ON,
 	#endif
 
-	#if CFG_DCF77 == 1
-	M_SYNC_DISP,
-	#endif
-
 	M_NORMAL,
 	M_TEMP_DISP,
 	M_DATE_DISP,
 	M_WEEKDAY_DISP,
-	M_SECONDS_DISP
+	M_SECONDS_DISP,
+	M_SET_OFFSET,
 };
 
 /* ------------------------------------------------------------------------- */
@@ -86,7 +89,9 @@ volatile uint8_t timerTicksNow;
 void _delay_ms(uint8_t ms)
 {
 	uint8_t stop = timerTicksNow + ms / 10;
-	while(timerTicksNow != stop);
+	while(timerTicksNow != stop) {
+		gps_cycle();
+	}
 }
 
 // GLOBALS
@@ -155,237 +160,16 @@ __bit display_colon;         // flash colon
 __bit  flash_d1d2;
 __bit  flash_d3d4;
 
-// DCF77
-#if CFG_DCF77 == 1
-
-#define DCF77_IN P3_6
-
-#define DCF77_ZERO_MIN      6
-#define DCF77_ZERO_MAX      14
-#define DCF77_ONE_MIN       17
-#define DCF77_ONE_MAX       24
-#define DCF77_MIN_POS_PULSE 66
-#define DCF77_START_MIN     110
-
-#define DCF77_BIT_COUNT     59
-
-enum Dcf77DataState {
-	DCF77_DATA_INVALID,
-	DCF77_DATA_COLLECTING,
-	DCF77_DATA_VALID
-};
-
-static const uint8_t DCF77_DATA_POS[] = {
-	// start in not used
-	1,   //  weather
-	9,   //  weather cont
-	15,  //  callbit
-	16,  //  dstChange
-	17,  //  summer
-	18,  //  winter
-	19,  //  leapSecond
-	20,  //  timeStart
-	21,  //  minutes
-	25,  //  tenMinutes
-	28,  //  minutesPar
-	29,  //  hour
-	33,  //  tenHour
-	35,  //  hourPar
-	36,  //  day
-	40,  //  tenDay
-	42,  //  weekday
-	45,  //  month
-	49,  //  tenMonth
-	50,  //  year
-	54,  //  tenYear
-	58   //  datePar
-};
-
-struct Dcf77Data {
-	uint8_t  start;
-
-	uint16_t weather;
-
-	uint8_t  callbit;
-	uint8_t  dstChange;
-	uint8_t  summer;
-	uint8_t  winter;
-	uint8_t  leapSecond;
-
-	uint8_t  timeStart;
-	uint8_t  minutes;
-	uint8_t  tenMinutes;
-	uint8_t  minutesPar;
-	uint8_t  hour;
-	uint8_t  tenHour;
-	uint8_t  hourPar;
-	uint8_t  day;
-	uint8_t  tenDay;
-	uint8_t  weekday;
-	uint8_t  month;
-	uint8_t  tenMonth;
-	uint8_t  year;
-	uint8_t  tenYear;
-	uint8_t  datePar;
-};
-
-struct Dcf77 {
-	enum Dcf77DataState dataState;
-	uint8_t actualState;   // which level had out input last time
-	uint8_t stateCount;    // how many 10 ms ticks was same input level
-	uint8_t bitPos;        // how many bit was already received for current minute
-	struct Dcf77Data data;
-} dcf77;
-
-struct Dcf77TickFilter {
-	uint8_t buf;
-	uint8_t count;
-} dcf77TickFilter;
-
-struct Dcf77LastSync {
-	uint8_t  minutes;
-	uint8_t  tenMinutes;
-	uint8_t  hour;
-	uint8_t  tenHour;
-} dcf77LastSync;
-
-void dcf77_reset() {
-	uint8_t i;
-	for(i = 0; i < sizeof(dcf77); ++i) *((uint8_t*)&dcf77 + i) = 0;
-}
-
-void dcf77_addBit(uint8_t bit) {
-	uint8_t byte, inByte;
-	uint8_t * data = (uint8_t*)&dcf77.data;
-	uint8_t const * posPos = DCF77_DATA_POS;
-	uint8_t bitPos = dcf77.bitPos;
-
-	if(bitPos >= DCF77_BIT_COUNT) return;
-
-	if(bit) {
-		for(byte = 0; byte < sizeof(DCF77_DATA_POS); ++byte) {
-			if(DCF77_DATA_POS[byte] > bitPos) break;
-		}
-		inByte = bitPos - DCF77_DATA_POS[byte-1];
-		data[byte] |= (1 << inByte);
-	}
-
-	++bitPos;
-	dcf77.bitPos = bitPos;
-}
-
-void dcf77_commit() {
-	// only minimal checks here to save code size
-	uint8_t correct = 1;
-	if(dcf77.bitPos != DCF77_BIT_COUNT) {
-		correct = 0;  // it's not true for the leapsecond, but we ignore it
-	}
-	else if(dcf77.data.start != 0 || dcf77.data.timeStart != 1) {
-		correct = 0;
-	}
-
-	// FIXME additional checks?
-
-	if(correct) {
-		dcf77.dataState = DCF77_DATA_VALID;
-	}
-	else {
-		dcf77_reset();
-	}
-}
-
-void dcf77_cycle10ms() {
-	uint8_t newState = DCF77_IN;
-
-	// pass through filter
-	dcf77TickFilter.count += newState;
-	dcf77TickFilter.buf <<= 1;
-	dcf77TickFilter.count -= (dcf77TickFilter.buf & 0x80) >> 7;
-	dcf77TickFilter.buf |= newState;
-	newState = (dcf77TickFilter.count > 3) ? 1 : 0;
-
-	if(newState == dcf77.actualState) {
-		++dcf77.stateCount;
-	}
-	else {
-		if(newState) { // should be begin of a second
-			if(dcf77.stateCount >= DCF77_START_MIN) dcf77_commit(); // first bit in minite - use data from the previous minute
-			else if(dcf77.stateCount < DCF77_MIN_POS_PULSE) dcf77_reset();
-		}
-		else { // decode the bit
-			dcf77.dataState = DCF77_DATA_COLLECTING;
-
-			if(dcf77.stateCount >= DCF77_ZERO_MIN && dcf77.stateCount <= DCF77_ZERO_MAX)
-				dcf77_addBit(0);
-			else if(dcf77.stateCount >= DCF77_ONE_MIN && dcf77.stateCount <= DCF77_ONE_MAX)
-				dcf77_addBit(1);
-			else
-				dcf77_reset();
-		}
-		dcf77.stateCount = 0;
-		dcf77.actualState = newState;
-	}
-}
-
-// in 100 ms ticks
-#define DCF77_MAX_DATA_EXPIRE 10ul*60*60*24
-uint32_t dcf77DataExpire;
-
-void dcf77ResetSync() {
-	dcf77DataExpire = 0;
-	dcf77LastSync.minutes    = 8;
-	dcf77LastSync.tenMinutes = 8;
-	dcf77LastSync.hour       = 8;
-	dcf77LastSync.tenHour    = 8;
-}
-
-void dcf77CopyToRtc() {
-	// a race-condition is possible here, but it cannot occur if this function will be called oft enough (every ~100 ms)
-	if(dcf77.dataState == DCF77_DATA_VALID) {
-		// take over new data from DCF77
-		rtc.tenyear    = dcf77.data.tenYear;
-		rtc.year       = dcf77.data.year;
-		rtc.tenmonth   = dcf77.data.tenMonth;
-		rtc.month      = dcf77.data.month;
-		rtc.tenday     = dcf77.data.tenDay;
-		rtc.day        = dcf77.data.day;
-		rtc.weekday    = dcf77.data.weekday;
-
-		rtc.tenhour    = dcf77.data.tenHour;
-		rtc.hour       = dcf77.data.hour;
-		rtc.tenminutes = dcf77.data.tenMinutes;
-		rtc.minutes    = dcf77.data.minutes;
-		rtc.tenseconds = 0;
-		rtc.seconds    = 0;
-
-		ds_writeburst((uint8_t const *) &rtc); // write rtc
-
-		dcf77DataExpire = DCF77_MAX_DATA_EXPIRE;
-		dcf77LastSync.minutes    = dcf77.data.minutes;
-		dcf77LastSync.tenMinutes = dcf77.data.tenMinutes;
-		dcf77LastSync.hour       = dcf77.data.hour;
-		dcf77LastSync.tenHour    = dcf77.data.tenHour;
-
-		dcf77_reset();
-	}
-	else if(dcf77DataExpire > 0) {
-		--dcf77DataExpire;
-	}
-	else {
-		dcf77ResetSync();
-	}
-}
-
-#define timeChanged() dcf77DataExpire = 0
-
-#else // CFG_DCF77 == 1
-
-#define timeChanged()
-
-#endif // CFG_DCF77 == 1
-
 volatile uint8_t debounce[2];      // switch debounce buffer
 volatile uint8_t switchcount[2];
+
+// uart
+uint8_t RBUF;
+__bit REND;
+static uint8_t RDAT;
+static uint8_t RCNT;
+static uint8_t RBIT;
+static __bit RING;
 
 void timer0_isr() __interrupt 1 __using 1
 {
@@ -404,6 +188,27 @@ void timer0_isr() __interrupt 1 __using 1
 		P3 &= ~((0x1 << digit) << 2);
 	}
 	displaycounter++;
+	
+	// uart rx
+	if(RING) {
+		if(--RCNT == 0) {
+			RCNT = 3;                // reset send baudrate counter
+			if(--RBIT == 0) {
+				RBUF = RDAT;         // save the data to RBUF
+				RING = 0;            // stop receive
+				REND = 1;            // set receive completed flag
+			}
+			else {
+				RDAT >>= 1;
+				if(RXB) RDAT |= 0x80; //shift RX data to RX buffer
+			}
+		}
+	}
+	else if(!RXB) {
+		RING = 1; // set start receive flag
+		RCNT = 4; // initial receive baudrate counter
+		RBIT = 9; // initial receive bit number (8 data bits + 1 stop bit)
+	}
 }
 
 void timer1_isr() __interrupt 3 __using 1 {
@@ -440,19 +245,18 @@ void timer1_isr() __interrupt 3 __using 1 {
 	debounce[1] = (d1 << 1) | SW2;
 
 	++timerTicksNow;
-
-	#if CFG_DCF77 == 1
-	dcf77_cycle10ms();
-	#endif // CFG_DCF77 == 1
+	
+	gps_cycle10ms();
 }
 
 void Timer0Init(void) // 200us @ 11.0592MHz
 {
-	TL0 = 0xFF-0xB8;     // Initial timer value
-	TH0 = 0xFF;          // Initial timer value
+	TL0 = (uint8_t)BAUD; // Initial timer value
+	TH0 = BAUD>>8;       // Initial timer value
 	TF0 = 0;             // Clear TF0 flag
 	TR0 = 1;             // Timer0 start run
 	ET0 = 1;             // enable timer0 interrupt
+	PT0 = 1;             // improve timer0 interrupt priority
 	EA = 1;              // global interrupt enable
 }
 
@@ -464,6 +268,13 @@ void Timer1Init(void) // 10ms @ 11.0592MHz
 	TR1 = 1;             // Timer1 start run
 	ET1 = 1;             // enable Timer1 interrupt
 	EA = 1;              // global interrupt enable
+}
+
+void uart_init()
+{
+	RING = 0;
+	REND = 0;
+	RCNT = 0;
 }
 
 uint8_t getkeypress(uint8_t keynum)
@@ -532,24 +343,105 @@ void display(uint8_t d1Always, uint8_t d1, uint8_t d2, uint8_t d3Always, uint8_t
 	}
 }
 
+uint8_t daysInMonth(uint8_t y, uint8_t m) {
+	switch(m) {
+		case 4:
+		case 6:
+		case 9:
+		case 11:
+			return 30;
+			
+		case 2:
+			return (y % 4 == 0 ? 29 : 28);
+			
+		default:
+			return 31;
+	}
+}
+
+uint8_t dayOfWeek(uint8_t y, uint8_t m, uint8_t d) {
+	static const uint8_t OFFSETS[] = { 1, 4, 4, 0, 2, 5, 0, 3, 6, 1, 4, 6 };
+	uint8_t v = y / 4 + d + OFFSETS[m-1];
+	if((y % 4 == 0) && (m == 1 || m == 2)) v -= 1;
+	v += 6 /* correct for 2000-2099 */ + y + 5;
+	v %= 7;
+	return (v + 1);
+}
+
+// in 100 ms ticks
+#define GPS_MAX_DATA_EXPIRE 10ul*60*60*24
+uint32_t gpsDataExpire;
+
+#define timeChanged() gpsDataExpire = 0
+
+void gpsCopyToRtc() {
+	uint8_t y = gps_datetime.tenyear * 10 + gps_datetime.year;
+	uint8_t m = gps_datetime.tenmonth * 10 + gps_datetime.month;
+	uint8_t d = gps_datetime.tenday * 10 + gps_datetime.day;
+	uint8_t h = gps_datetime.tenhour * 10 + gps_datetime.hour;
+	
+	if(config.time_offset < 0) {
+		// FIXME
+	}
+	else {
+		h += config.time_offset;
+		if(h > 23) {
+			h -= 24;
+			++d;
+			if(d > daysInMonth(y, m)) {
+				d = 1;
+				++m;
+				if(m > 12) {
+					m = 1;
+					++y;
+				}
+			}
+		}
+	}
+	
+	rtc.tenyear    = y / 10;
+	rtc.year       = y % 10;
+	rtc.tenmonth   = m / 10;
+	rtc.month      = m % 10;
+	rtc.tenday     = d / 10;
+	rtc.day        = d % 10;
+	rtc.weekday    = dayOfWeek(y, m, d);
+
+	rtc.tenhour    = h / 10;
+	rtc.hour       = h % 10;
+	rtc.tenminutes = gps_datetime.tenminutes;
+	rtc.minutes    = gps_datetime.minutes;
+	rtc.tenseconds = gps_datetime.tenseconds;
+	rtc.seconds    = gps_datetime.seconds;
+
+	//P3_1 = 1;
+	ds_writeburst((uint8_t const *) &rtc); // write rtc
+	gpsDataExpire = GPS_MAX_DATA_EXPIRE;
+	//P3_1 = 0;
+	// FIXME there is about +890.5 ms offset here
+}
+
 /*********************************************/
 int main()
 {
 	// SETUP
-	// set ds1302, photoresistor, & ntc pins to open-drain output, already have strong pullups
+	// set ds1302, photoresistor & ntc pins to open-drain output, already have strong pullups
 	P1M1 |= (1 << 0) | (1 << 1) | (1 << 2) | (1<<6) | (1<<7);
 	P1M0 |= (1 << 0) | (1 << 1) | (1 << 2) | (1<<6) | (1<<7);
-
-	P3M1 = (1 << 6);
-	P3M0 = (0 << 6);
 
 	// init rtc
 	ds_init();
 	// init/read ram config
 	ds_ram_config_init((uint8_t *) &config);
 
+	TMOD = 0x00;  // timer0 in 16-bit auto reload mode
+	AUXR = 0x80;  // timer0 working at 1T mode
+
 	Timer0Init(); // display refresh
 	Timer1Init(); // switch debounce
+	
+	uart_init();
+	gps_init();
 
 	// LOOP
 	while(1)
@@ -568,10 +460,14 @@ int main()
 				lightval = 4;
 		}
 
-		#if CFG_DCF77 == 1
-		dcf77CopyToRtc();
-		#endif // CFG_DCF77 == 1
-
+		if(gps_datetime.valid && !gps_datetime.wait) {
+			gpsCopyToRtc();
+			gps_datetime.valid = 0;
+		}
+		else {
+			if(gpsDataExpire > 0)
+				--gpsDataExpire;
+		}
 		ds_readburst((uint8_t *) &rtc); // read rtc
 		convertNow();
 
@@ -777,14 +673,22 @@ int main()
 				break;
 			#endif // CFG_CHIME == 1
 
-			#if CFG_DCF77 == 1
-			case M_SYNC_DISP:
-				if (getkeypress(S2))
-					dcf77ResetSync();
-				if (getkeypress(S1))
-					++dmode; // M_NORMAL
+			case M_SET_OFFSET:
+				flash_d1d2 = !flash_d1d2;
+				if (getkeypress(S2)) {
+					config.time_offset++;
+					if(config.time_offset > 14) config.time_offset = -12;
+					configModified = 1;
+				}
+				if (getkeypress(S1)) {
+					flash_d1d2 = 0;
+					#if CFG_SET_DATE_TIME == 1
+						dmode = M_SET_HOUR;
+					#else
+						dmode = 0;  // M_ALARM_HOUR, M_CHIME_START or M_NORMAL
+					#endif
+				}
 				break;
-			#endif
 
 			case M_TEMP_DISP:
 				if (getkeypress(S1)) {
@@ -838,16 +742,14 @@ int main()
 				if (count % 10 < 4)
 					display_colon = 1;
 
-				#if CFG_SET_DATE_TIME == 1
 				if (getkeypress(S1) == PRESS_LONG && getkeypress(S2) == PRESS_LONG) {
 					ds_reset_clock();
 					timeChanged();
 				}
 
 				if (getkeypress(S1 == PRESS_SHORT)) {
-					dmode = M_SET_HOUR;
+					dmode = M_SET_OFFSET;
 				}
-				#endif // CFG_SET_DATE_TIME == 1
 
 				if (getkeypress(S2 == PRESS_SHORT)) {
 					dmode = M_TEMP_DISP;
@@ -858,7 +760,6 @@ int main()
 		// display execution tree
 		switch (dmode) {
 			case M_NORMAL:
-
 			#if CFG_SET_DATE_TIME == 1
 			case M_SET_HOUR:
 			case M_SET_MINUTE:
@@ -868,13 +769,8 @@ int main()
 				display(CFG_HOUR_LEADING_ZERO, hourToShow1.tens, hourToShow1.ones, 1, rtc.tenminutes, rtc.minutes);
 				displayPm(0, hourToShow1.pm);
 
-				#if CFG_DCF77 == 1
-				if((dcf77DataExpire > 0)
-					|| (dcf77.dataState == DCF77_DATA_COLLECTING && !display_colon))
-				{
+				if(gpsDataExpire)
 					displayDp(0);
-				}
-				#endif // CFG_DCF77 == 1
 
 				#if CFG_ALARM == 1
 				if(dmode == M_NORMAL && config.alarm_on) displayDp(3);
@@ -922,14 +818,22 @@ int main()
 				break;
 			#endif
 
-			#if CFG_DCF77 == 1
-			case M_SYNC_DISP:
-				display(CFG_HOUR_LEADING_ZERO, dcf77LastSync.tenHour, dcf77LastSync.hour, 1, dcf77LastSync.tenMinutes, dcf77LastSync.minutes);
-				displayDp(0);
-				displayDp(1);
-				displayDp(2);
+			case M_SET_OFFSET:
+				{
+					int8_t v = config.time_offset;
+					if(v >= 10)
+						display(0, LED_BLANK, LED_BLANK, 1, ds_int2bcd_tens(v), ds_int2bcd_ones(v));
+					else if(v >= 0)
+						display(0, LED_BLANK, LED_BLANK, 1, LED_BLANK, v);
+					else if(v <= -10)
+						display(0, LED_BLANK, LED_DASH, 1, ds_int2bcd_tens(-v), ds_int2bcd_ones(-v));
+					else
+						display(0, LED_BLANK, LED_BLANK, 1, LED_DASH, -v);
+
+					displayDp(0);
+				}
+
 				break;
-			#endif
 
 			case M_WEEKDAY_DISP:
 				display(0, LED_BLANK, LED_DASH, 1, rtc.weekday, LED_DASH);
@@ -942,6 +846,10 @@ int main()
 
 			case M_SECONDS_DISP:
 				display(0, LED_BLANK, LED_BLANK, 1, rtc.tenseconds, rtc.seconds);
+
+				if(gpsDataExpire)
+					displayDp(0);
+
 				break;
 
 		}
