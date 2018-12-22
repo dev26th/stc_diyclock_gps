@@ -360,12 +360,13 @@ void dcf77CopyToRtc() {
 
 		ds_writeburst((uint8_t const *) &rtc); // write rtc
 
-		dcf77_reset();
 		dcf77DataExpire = DCF77_MAX_DATA_EXPIRE;
 		dcf77LastSync.minutes    = dcf77.data.minutes;
 		dcf77LastSync.tenMinutes = dcf77.data.tenMinutes;
 		dcf77LastSync.hour       = dcf77.data.hour;
 		dcf77LastSync.tenHour    = dcf77.data.tenHour;
+
+		dcf77_reset();
 	}
 	else if(dcf77DataExpire > 0) {
 		--dcf77DataExpire;
@@ -923,7 +924,7 @@ int main()
 
 			#if CFG_DCF77 == 1
 			case M_SYNC_DISP:
-				display(CFG_HOUR_LEADING_ZERO, dcf77LastSync.tenHour, dcf77LastSync.tenHour, 1, dcf77LastSync.tenMinutes, dcf77LastSync.minutes);
+				display(CFG_HOUR_LEADING_ZERO, dcf77LastSync.tenHour, dcf77LastSync.hour, 1, dcf77LastSync.tenMinutes, dcf77LastSync.minutes);
 				displayDp(0);
 				displayDp(1);
 				displayDp(2);
