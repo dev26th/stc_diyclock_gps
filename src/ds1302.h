@@ -31,60 +31,60 @@
 #define DS_BURST_MODE       31
 
 typedef struct ds1302_rtc {
-	// inspiration from http://playground.arduino.cc/Main/DS1302
-	// 8 bytes, must keep aligned to rtc structure. Data fields are bcd
+    // inspiration from http://playground.arduino.cc/Main/DS1302
+    // 8 bytes, must keep aligned to rtc structure. Data fields are bcd
 
-	// 00-59
-	uint8_t seconds:4;
-	uint8_t tenseconds:3;
-	uint8_t clock_halt:1;
+    // 00-59
+    uint8_t seconds:4;
+    uint8_t tenseconds:3;
+    uint8_t clock_halt:1;
 
-	// 00-59
-	uint8_t minutes:4;
-	uint8_t tenminutes:3;
-	uint8_t reserved1:1;
+    // 00-59
+    uint8_t minutes:4;
+    uint8_t tenminutes:3;
+    uint8_t reserved1:1;
 
-	// 0-23
-	uint8_t hour:4;
-	uint8_t tenhour:2;
-	uint8_t reserved2a:1;
-	uint8_t hour_12_24:1;   // must be 0
+    // 0-23
+    uint8_t hour:4;
+    uint8_t tenhour:2;
+    uint8_t reserved2a:1;
+    uint8_t hour_12_24:1;   // must be 0
 
-	// 1-31
-	uint8_t day:4;
-	uint8_t tenday:2;
-	uint8_t reserved3:2;
+    // 1-31
+    uint8_t day:4;
+    uint8_t tenday:2;
+    uint8_t reserved3:2;
 
-	// 1-12
-	uint8_t month:4;
-	uint8_t tenmonth:1;
-	uint8_t reserved4:3;
+    // 1-12
+    uint8_t month:4;
+    uint8_t tenmonth:1;
+    uint8_t reserved4:3;
 
-	// 1-7
-	uint8_t weekday:3;
-	uint8_t reserved5:5;
+    // 1-7
+    uint8_t weekday:3;
+    uint8_t reserved5:5;
 
-	// 00-99
-	uint8_t year:4;
-	uint8_t tenyear:4;
+    // 00-99
+    uint8_t year:4;
+    uint8_t tenyear:4;
 
-	uint8_t reserved:7;
-	uint8_t write_protect:1;
+    uint8_t reserved:7;
+    uint8_t write_protect:1;
 };
 
 // ram config stored in rtc
 typedef struct ram_config {
-	int8_t    temp_offset;
+    int8_t    temp_offset;
 
-	uint8_t   alarm_on;
-	uint8_t   alarm_hour;
-	uint8_t   alarm_minute;
+    uint8_t   alarm_on;
+    uint8_t   alarm_hour;
+    uint8_t   alarm_minute;
 
-	uint8_t   chime_on;
-	uint8_t   chime_hour_start;
-	uint8_t   chime_hour_stop;
+    uint8_t   chime_on;
+    uint8_t   chime_hour_start;
+    uint8_t   chime_hour_stop;
 
-	int8_t    time_offset;
+    int8_t    time_offset;
 };
 
 void ds_ram_config_init(uint8_t * config);
@@ -127,13 +127,13 @@ void ds_month_incr(struct ds1302_rtc* rtc);
 void ds_day_incr(struct ds1302_rtc* rtc);
 
 void ds_weekday_incr(struct ds1302_rtc* rtc);
-    
+
 // split bcd to int
 uint8_t ds_split2int(uint8_t tens, uint8_t ones);
 
 // return bcd byte from integer
 uint8_t ds_int2bcd(uint8_t integer);
-    
+
 #endif // CFG_SET_DATE_TIME == 1
 
 // convert integer to bcd parts (high = tens, low = ones)

@@ -11,7 +11,8 @@
 // CFG_SET_DATE_TIME 1 or 0
 // CFG_ALARM 1 or 0
 // CFG_CHIME 1 or 0
-// durations are in 100 ms tackts
+// CFG_GPS_CORRECTION in 10 ms ticks
+// other durations are in 100 ms ticks
 // defaults for the configuration options:
 
 #ifndef CFG_ALARM_DURATION
@@ -47,7 +48,7 @@
 #endif
 
 #ifndef CFG_SET_DATE_TIME
-#define CFG_SET_DATE_TIME 1
+#define CFG_SET_DATE_TIME 0
 #endif
 
 #ifndef CFG_ALARM
