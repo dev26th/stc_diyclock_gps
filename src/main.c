@@ -422,9 +422,7 @@ void gpsCopyToRtc() {
     rtc.tenseconds = gps_datetime.tenseconds;
     rtc.seconds    = gps_datetime.seconds;
 
-    //P3_1 = 1;
     ds_writeburst((uint8_t const *) &rtc); // write rtc
-    //P3_1 = 0;
     gpsDataExpire = GPS_MAX_DATA_EXPIRE;
 }
 

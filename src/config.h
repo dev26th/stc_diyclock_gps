@@ -60,7 +60,7 @@
 #endif
 
 #ifndef CFG_GPS_CORRECTION
-#define CFG_GPS_CORRECTION 80
+#define CFG_GPS_CORRECTION 88
 #endif
 
 #endif // CONFIG_H
