@@ -1,9 +1,7 @@
 # STC DIY Clock Kit + GPS firmware
-Firmware replacement for STC15F mcu-based DIY Clock Kit (available from banggood [see below for link], aliexpress, et al.) Uses [sdcc](http://sdcc.sf.net) to build and [stcgal](https://github.com/grigorig/stcgal) to flash firmware on to STC15F204EA series microcontroller.
+Firmware replacement for STC15F mcu-based DIY Clock Kit (available from banggood, aliexpress, et al.) Uses [sdcc](http://sdcc.sf.net) to build and [stcgal](https://github.com/grigorig/stcgal) to flash firmware on to STC15F204EA series microcontroller.
 
 ![Image of Banggood SKU972289](http://img.banggood.com/thumb/large/2014/xiemeijuan/03/SKU203096/A3.jpg?p=D9031748980672016067)
-
-[link to Banggood product page for SKU 972289](http://www.banggood.com/DIY-4-Digit-LED-Electronic-Clock-Kit-Temperature-Light-Control-Version-p-972289.html?p=D9031748980672016067)
 
 ## features
 
@@ -19,10 +17,11 @@ Firmware replacement for STC15F mcu-based DIY Clock Kit (available from banggood
 ## hardware
 
 * DIY LED Clock kit, based on STC15F204EA and DS1302, e.g. [Banggood SKU 972289](http://www.banggood.com/DIY-4-Digit-LED-Electronic-Clock-Kit-Temperature-Light-Control-Version-p-972289.html?p=D9031748980672016067)
-* connected to PC via cheap USB-UART adapter, e.g. CP2102, CH340G. [Banggood: CP2102 USB-UART adapter](http://www.banggood.com/CJMCU-CP2102-USB-To-TTLSerial-Module-UART-STC-Downloader-p-970993.html?p=D9031748980672016067)
-* GPS-receiver, with its Tx connected to P3.7
+* connected to PC via cheap USB-UART adapter, e.g. CP2102, CH340G. [Banggood: CP2102 USB-UART adapter](http://www.banggood.com/CJMCU-CP2102-USB-To-TTLSerial-Module-UART-STC-Downloader-p-970993.html)
+* GPS-receiver, with its Tx connected to P3.7 [Banggood: GPS Module](https://www.banggood.com/1-5Hz-VK2828U7G5LF-TTL-GPS-Module-With-Antenna-p-965540.html)
 
 ## requirements
+
 * linux or mac (windows untested, but should work)
 * sdcc installed and in the path
 * stcgal (or optionally stc-isp). Note you can either do "git clone --recursive ..." when you check this repo out, or do "git submodule update --init --recursive" in order to fetch stcgal.
