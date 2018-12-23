@@ -50,7 +50,7 @@
 #define PM_OFF 0x00
 #define PM_ON  0x20
 
-#define BAUD 0xFE80                    // 9600bps @ 11.0592MHz
+#define BAUD 9600
 #define RXB  P3_7
 
 // display mode states, order is important
@@ -176,6 +176,7 @@ void timer0_isr() __interrupt 1 __using 1
 	// display refresh ISR
 	// cycle thru digits one at a time
 	uint8_t digit = displaycounter % 4;
+	//P3_1 = 1;
 
 	// turn off all digits, set high
 	P3 |= 0x3C;
@@ -209,6 +210,7 @@ void timer0_isr() __interrupt 1 __using 1
 		RCNT = 4; // initial receive baudrate counter
 		RBIT = 9; // initial receive bit number (8 data bits + 1 stop bit)
 	}
+	//P3_1 = 0;
 }
 
 void timer1_isr() __interrupt 3 __using 1 {
@@ -249,14 +251,13 @@ void timer1_isr() __interrupt 3 __using 1 {
 	gps_cycle10ms();
 }
 
-void Timer0Init(void) // 200us @ 11.0592MHz
+void Timer0Init(void) // ~34.7 us for 9600 UART
 {
-	TL0 = (uint8_t)BAUD; // Initial timer value
-	TH0 = BAUD>>8;       // Initial timer value
+	TL0 = 0xFF-(FOSC/3/BAUD/12); // Initial timer value
+	TH0 = 0xFF;          // Initial timer value
 	TF0 = 0;             // Clear TF0 flag
 	TR0 = 1;             // Timer0 start run
 	ET0 = 1;             // enable timer0 interrupt
-	PT0 = 1;             // improve timer0 interrupt priority
 	EA = 1;              // global interrupt enable
 }
 
@@ -433,9 +434,6 @@ int main()
 	ds_init();
 	// init/read ram config
 	ds_ram_config_init((uint8_t *) &config);
-
-	TMOD = 0x00;  // timer0 in 16-bit auto reload mode
-	AUXR = 0x80;  // timer0 working at 1T mode
 
 	Timer0Init(); // display refresh
 	Timer1Init(); // switch debounce
@@ -675,6 +673,7 @@ int main()
 
 			case M_SET_OFFSET:
 				flash_d1d2 = !flash_d1d2;
+				flash_d3d4 = !flash_d3d4;
 				if (getkeypress(S2)) {
 					config.time_offset++;
 					if(config.time_offset > 14) config.time_offset = -12;
