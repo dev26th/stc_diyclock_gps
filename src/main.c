@@ -389,7 +389,20 @@ void gpsCopyToRtc() {
     }
 
     if(config.time_offset < 0) {
-        // FIXME
+        uint8_t v = -config.time_offset;
+        if(h < v) {
+            --d;
+            h += 24;
+            if(d == 0) {
+                --m;
+                d = daysInMonth(y, m);
+                if(m == 0) {
+                    --y;
+                    m = 12;
+                }
+            }
+        }
+        h -= v;
     }
     else {
         h += config.time_offset;
