@@ -253,7 +253,7 @@ void timer1_isr() __interrupt 3 __using 1 {
 
 void Timer0Init(void) // ~34.7 us for 9600 UART
 {
-	TL0 = 0xFF-(FOSC/3/BAUD/12); // Initial timer value
+	TL0 = (uint8_t)(0xFF-(FOSC/3/BAUD/12)); // Initial timer value
 	TH0 = 0xFF;          // Initial timer value
 	TF0 = 0;             // Clear TF0 flag
 	TR0 = 1;             // Timer0 start run
